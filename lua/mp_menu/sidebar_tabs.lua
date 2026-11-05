@@ -114,7 +114,7 @@ surface.CreateFont( "MP.TabTitle", {
 	extended = true
 } )
 
-SIDEBAR_TAB.BgColor = Color( 28, 100, 157 )
+SIDEBAR_TAB.BgColor = Color( 55, 55, 55 )
 SIDEBAR_TAB.SelectedBorderColor = color_white
 SIDEBAR_TAB.SelectedBorderHeight = 2
 
@@ -154,7 +154,7 @@ local CURRENTLY_PLAYING_TAB = {}
 
 AccessorFunc( CURRENTLY_PLAYING_TAB, "MediaPlayerId", "MediaPlayerId" )
 
-CURRENTLY_PLAYING_TAB.BgColor = Color( 7, 21, 33 )
+CURRENTLY_PLAYING_TAB.BgColor = Color( 18, 18, 18 )
 
 function CURRENTLY_PLAYING_TAB:Init()
 

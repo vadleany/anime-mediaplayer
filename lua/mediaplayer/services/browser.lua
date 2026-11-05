@@ -312,6 +312,19 @@ if CLIENT then
 		self.Browser:InjectMouseClick( x, y )
 	end
 
+	function SERVICE:OnMouseMoved( x, y )
+		local browser = self.Browser
+		if not IsValid( browser ) then return false end
+
+		return browser:MouseHoverAt( x, y )
+	end
+
+	function SERVICE:OnMouseLeft()
+		if IsValid( self.Browser ) then
+			self.Browser:EndMouseHover()
+		end
+	end
+
 	local SCROLL_MULTIPLIER = -80
 	function SERVICE:OnMouseWheeled( scrollDelta )
 		self.Browser:Scroll( scrollDelta * SCROLL_MULTIPLIER )

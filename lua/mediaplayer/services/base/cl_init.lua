@@ -38,6 +38,21 @@ end
 function SERVICE:OnMouseWheeled( scrollDelta )
 end
 
+---
+-- Mouse is hovering over the screen; called every frame while it is.
+--
+-- @param x number	Horizontal position on the screen, 0 to 1.
+-- @param y number	Vertical position on the screen, 0 to 1.
+-- @return boolean	True if the service has taken the cursor.
+function SERVICE:OnMouseMoved( x, y )
+	return false
+end
+
+---
+-- Mouse stopped hovering over the screen.
+function SERVICE:OnMouseLeft()
+end
+
 function SERVICE:IsMouseInputEnabled()
 	return false
 end

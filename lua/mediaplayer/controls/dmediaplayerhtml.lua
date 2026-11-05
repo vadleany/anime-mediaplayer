@@ -469,7 +469,8 @@ function PANEL:HUDPaint()
 end
 
 function PANEL:InjectMouseClick( x, y )
-	if self._handlingMouseAction then
+	-- While hovering, clicks already reach the page as native input
+	if self._handlingMouseAction or self._mouseHover then
 		return
 	end
 
@@ -513,6 +514,90 @@ function PANEL:HandleMouseActions()
 		table.remove( self.MouseActions, 1 )
 		self._handlingMouseAction = nil
 	end
+end
+
+--[[---------------------------------------------------------
+	Mouse hover
+
+	GMod can't push mouse events into CEF directly, so the panel is
+	kept under the real cursor instead. It's painted manually, so it
+	stays invisible, and vgui delivers native move, click and wheel
+	input to it. Left and right click both work this way.
+-----------------------------------------------------------]]
+
+-- Frames to wait after taking the cursor before checking whether another
+-- panel has it; vgui only updates the hovered panel after the panel moved.
+local HOVER_GRACE_FRAMES = 3
+
+function PANEL:IsMouseHovering()
+	return self._mouseHover ~= nil
+end
+
+---
+-- Keeps the browser under the real cursor so the page sees the mouse at a
+-- spot on the page. Call this every frame while the mouse is over the screen.
+--
+-- @param x number	Horizontal position on the page, 0 to 1.
+-- @param y number	Vertical position on the page, 0 to 1.
+-- @return boolean	False if the page can't have the cursor, e.g. because
+--					another panel took it.
+function PANEL:MouseHoverAt( x, y )
+	-- Fullscreen browsers aren't mapped onto a 3D screen
+	if self._handlingMouseAction or self._OrigSize then
+		return false
+	end
+
+	local w, h = self:GetSize()
+	-- Stay inside the panel so the cursor never falls off its edge
+	local lx = math.Clamp( math.Round( x * w ), 0, w - 1 )
+	local ly = math.Clamp( math.Round( y * h ), 0, h - 1 )
+	local cx, cy = input.GetCursorPos()
+	local state = self._mouseHover
+
+	if not state then
+		self._mouseHover = { frames = 0 }
+
+		self:SetZPos( 32767 )
+		self:SetPos( cx - lx, cy - ly )
+		self:MakePopup()
+		-- MakePopup grabs the keyboard, which would swallow the release of
+		-- the context menu key and leave the menu stuck open.
+		self:SetKeyboardInputEnabled( false )
+		gui.InternalCursorMoved( 0, 0 )
+
+		return true
+	end
+
+	state.frames = state.frames + 1
+
+	if state.frames > HOVER_GRACE_FRAMES and vgui.GetHoveredPanel() ~= self then
+		self:EndMouseHover()
+		return false
+	end
+
+	self:SetPos( cx - lx, cy - ly )
+
+	-- Runs every frame, so only message CEF when the position changed
+	if state.frames == 1 or lx ~= state.x or ly ~= state.y then
+		state.x, state.y = lx, ly
+		gui.InternalCursorMoved( cx, cy )
+	end
+
+	return true
+end
+
+function PANEL:EndMouseHover()
+	if not self._mouseHover then return end
+
+	self._mouseHover = nil
+
+	self:SetMouseInputEnabled( false )
+	self:SetKeyboardInputEnabled( false )
+	self:SetZPos( -32768 )
+
+	-- Let vgui re-evaluate the hovered panel so the page sees the mouse leave
+	local cx, cy = input.GetCursorPos()
+	gui.InternalCursorMoved( cx, cy )
 end
 
 function PANEL:OnRemove()

@@ -29,8 +29,12 @@ if CLIENT then
 	MediaPlayer.Cvars.ProximityMin = CreateClientConVar( "mediaplayer_proximity_min", "100", true, false )
 	MediaPlayer.Cvars.ProximityMax = CreateClientConVar( "mediaplayer_proximity_max", "1000", true, false )
 
-	-- Per-viewer YouTube caption language, passed to the player page.
+	-- Per-viewer subtitle language: YouTube captions (passed to the player page) and
+	-- embedded MKV subtitles (direct media).
 	-- Language code (e.g. "ko", "en"); "off" disables captions.
 	MediaPlayer.Cvars.CaptionLang	= CreateClientConVar( "mediaplayer_cc_lang", "off", true, false )
+
+	-- Draw embedded ASS subtitles with the styling, fonts and positions the file defines.
+	MediaPlayer.Cvars.SubtitleStyling = CreateClientConVar( "mediaplayer_subtitle_styling", "1", true, false )
 
 end

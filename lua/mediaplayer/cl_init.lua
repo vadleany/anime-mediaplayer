@@ -14,6 +14,7 @@ include "cl_chromeerror.lua"
 include "cl_requests.lua"
 include "cl_idlescreen.lua"
 include "cl_screen.lua"
+include "cl_subtitles.lua"
 
 function MediaPlayer.Volume( volume )
 

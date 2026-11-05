@@ -15,6 +15,16 @@ function MEDIAPLAYER:OnQueueKeyPressed( down, held )
 	self._LastMediaUpdate = RealTime()
 end
 
+---
+-- Mouse is hovering over the screen while the context menu is open.
+-- @return boolean	True if the player took the cursor.
+function MEDIAPLAYER:OnMouseMoved( x, y )
+	return false
+end
+
+function MEDIAPLAYER:OnMouseLeft()
+end
+
 
 --[[---------------------------------------------------------
 	Networking

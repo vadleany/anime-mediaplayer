@@ -63,6 +63,61 @@ end
 
 local BaseInfoHeight = 60
 
+--[[---------------------------------------------------------
+	Screen cursor
+
+	Arrow pointer drawn where the mouse is hovering, since CEF renders
+	the page without one. Split into convex pieces because
+	surface.DrawPoly can't draw the concave arrow in one go. Points are
+	offsets from the tip in units of cursor height, wound clockwise.
+-----------------------------------------------------------]]
+
+local CURSOR_SHAPE = {
+	{ 0, 0,  0.20, 0.68,  0, 0.86 },
+	{ 0, 0,  0.32, 0.63,  0.20, 0.68 },
+	{ 0, 0,  0.60, 0.63,  0.32, 0.63 },
+	{ 0.32, 0.63,  0.46, 0.94,  0.34, 1.00,  0.20, 0.68 },
+}
+
+-- Reused every frame to avoid allocating while the cursor is shown
+local cursorPolys = {}
+for i = 1, #CURSOR_SHAPE do
+	local poly = {}
+	for v = 1, #CURSOR_SHAPE[i] / 2 do
+		poly[v] = { x = 0, y = 0 }
+	end
+	cursorPolys[i] = poly
+end
+
+local function DrawCursorShape( ox, oy, size )
+	for i = 1, #CURSOR_SHAPE do
+		local shape, poly = CURSOR_SHAPE[i], cursorPolys[i]
+
+		for v = 1, #poly do
+			local vert = poly[v]
+			vert.x = ox + shape[v * 2 - 1] * size
+			vert.y = oy + shape[v * 2] * size
+		end
+
+		surface.DrawPoly( poly )
+	end
+end
+
+local function DrawScreenCursor( x, y, h )
+	local size = math.max( 16, h * 0.05 )
+	local outline = size * 0.06
+
+	draw.NoTexture()
+
+	-- Dark outline so the cursor stands out on light and dark pages
+	surface.SetDrawColor( 0, 0, 0, 220 )
+	DrawCursorShape( x - outline, y - outline, size )
+	DrawCursorShape( x + outline, y + outline, size )
+
+	surface.SetDrawColor( 255, 255, 255, 255 )
+	DrawCursorShape( x, y, size )
+end
+
 function MEDIAPLAYER:Draw( bDrawingDepth, bDrawingSkybox )
 
 	local ent = self.Entity
@@ -105,6 +160,14 @@ function MEDIAPLAYER:Draw( bDrawingDepth, bDrawingSkybox )
 		else
 			Start3D2D( pos, ang, RenderScale )
 				draw.SimpleText( MediaPlayer.L("mp.ui.unsupported_media"), "DermaDefault", rw / 2, rh / 2, color_white, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
+			End3D2D()
+		end
+
+		-- Mouse cursor from holding the context menu over the screen
+		local cursorX, cursorY = self._cursorX, self._cursorY
+		if cursorX then
+			Start3D2D( pos, ang, RenderScale )
+				DrawScreenCursor( cursorX * rw, cursorY * rh, rh )
 			End3D2D()
 		end
 
@@ -155,5 +218,34 @@ function MEDIAPLAYER:OnMouseWheeled( scrollDelta )
 	local media = self:GetMedia()
 	if media and media:IsMouseInputEnabled() then
 		media:OnMouseWheeled( scrollDelta )
+	end
+end
+
+---
+-- Mouse is hovering over the 3D2D screen while the context menu is open.
+-- Called every frame while it is.
+--
+-- @return boolean	True if the media took the cursor.
+function MEDIAPLAYER:OnMouseMoved( x, y )
+	local media = self:GetMedia()
+
+	if IsValid( media ) and media:IsMouseInputEnabled() and media:OnMouseMoved( x, y ) then
+		self._cursorX, self._cursorY = x, y
+		return true
+	end
+
+	if self._cursorX then
+		self:OnMouseLeft()
+	end
+
+	return false
+end
+
+function MEDIAPLAYER:OnMouseLeft()
+	self._cursorX, self._cursorY = nil, nil
+
+	local media = self:GetMedia()
+	if IsValid( media ) then
+		media:OnMouseLeft()
 	end
 end

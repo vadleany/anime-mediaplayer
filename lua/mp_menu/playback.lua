@@ -9,11 +9,11 @@ local PANEL = {}
 
 PANEL.Height = 72
 
-PANEL.BgColor = Color( 13, 41, 62 )
+PANEL.BgColor = Color( 38, 38, 38 )
 PANEL.Padding = 12
 PANEL.BtnSpacing = 4
 
--- PANEL.TrackbarProgressColor = Color( 28, 100, 157 )
+-- PANEL.TrackbarProgressColor = Color( 150, 150, 150 )
 PANEL.SeekbarHeight = 8
 
 PANEL.TitleMaxWidth = 335
@@ -222,7 +222,7 @@ local SEEKBAR = {}
 SEEKBAR.KnobSize = 8
 SEEKBAR.BarHeight = 2
 
-SEEKBAR.ProgressColor = Color( 28, 100, 157 )
+SEEKBAR.ProgressColor = Color( 150, 150, 150 )
 
 AccessorFunc( SEEKBAR, "m_Media", "Media" )
 

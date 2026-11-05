@@ -52,7 +52,8 @@ These settings are local to each player and can be changed in that player's clie
 | `mediaplayer_draw_thumbnails` | `0` | Controls drawing of media thumbnails in the client UI. |
 | `mediaplayer_proximity_min` | `100` | Lower bound for the client's proximity-based audio behavior. |
 | `mediaplayer_proximity_max` | `1000` | Upper bound for the client's proximity-based audio behavior. |
-| `mediaplayer_cc_lang` | `off` | Preferred YouTube caption language code (for example, `en` or `ko`). Use `off` to disable captions. |
+| `mediaplayer_cc_lang` | `off` | Preferred subtitle language code for YouTube captions and embedded MKV subtitles (for example, `en` or `ko`). Use `off` to disable subtitles. |
+| `mediaplayer_subtitle_styling` | `1` | Draws embedded ASS subtitles the way the video file defines them (styles, positions, effects and its embedded fonts). Set to `0` for plain text. |
 
 Examples:
 

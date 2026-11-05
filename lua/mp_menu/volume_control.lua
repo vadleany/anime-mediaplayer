@@ -10,7 +10,7 @@ local PANEL = {}
 PANEL.Margin = 16
 PANEL.ButtonWidth = 18
 PANEL.ButtonSpacing = 8
-PANEL.BackgroundColor = Color( 28, 100, 157 )
+PANEL.BackgroundColor = Color( 55, 55, 55 )
 
 function PANEL:Init()
 
@@ -120,7 +120,7 @@ local VOLUME_SLIDER = {}
 VOLUME_SLIDER.BarHeight = 3
 VOLUME_SLIDER.KnobSize = 12
 
-VOLUME_SLIDER.BarBgColor = Color( 13, 41, 62 )
+VOLUME_SLIDER.BarBgColor = Color( 25, 25, 25 )
 
 VOLUME_SLIDER.ScrollIncrement = 0.1 -- out of 1
 

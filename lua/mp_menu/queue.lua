@@ -31,7 +31,7 @@ derma.DefineControl( "MP.Queue", "", PANEL, "Panel" )
 
 local QUEUE_HEADER = {}
 
-QUEUE_HEADER.BgColor = Color( 7, 21, 33 )
+QUEUE_HEADER.BgColor = Color( 20, 20, 20 )
 
 QUEUE_HEADER.Height = 43
 QUEUE_HEADER.Padding = 10
@@ -132,9 +132,9 @@ derma.DefineControl( "MP.AddVideoButton", "", ADD_VIDEO_BTN, "DIconLabeledButton
 local QUEUE_LIST = {}
 
 QUEUE_LIST.ScrollbarWidth = 6
-QUEUE_LIST.ScrollbarBgColor = Color( 7, 21, 33, 200 )
-QUEUE_LIST.ScrollbarGripColor = Color( 28, 100, 157, 180 )
-QUEUE_LIST.ScrollbarGripHoverColor = Color( 40, 120, 180, 220 )
+QUEUE_LIST.ScrollbarBgColor = Color( 20, 20, 20, 200 )
+QUEUE_LIST.ScrollbarGripColor = Color( 110, 110, 110, 180 )
+QUEUE_LIST.ScrollbarGripHoverColor = Color( 150, 150, 150, 220 )
 
 function QUEUE_LIST:Init()
 
@@ -180,12 +180,12 @@ local MEDIA_ITEM = {}
 
 MEDIA_ITEM.Height = 64
 
-MEDIA_ITEM.BgColor = Color( 13, 41, 62 )
+MEDIA_ITEM.BgColor = Color( 38, 38, 38 )
 MEDIA_ITEM.HPadding = 12
 MEDIA_ITEM.VPadding = 8
 MEDIA_ITEM.BtnSpacing = 4
 
-MEDIA_ITEM.TrackbarProgressColor = Color( 28, 100, 157 )
+MEDIA_ITEM.TrackbarProgressColor = Color( 150, 150, 150 )
 MEDIA_ITEM.TrackbarHeight = 2
 
 MEDIA_ITEM.TitleMaxWidth = 335

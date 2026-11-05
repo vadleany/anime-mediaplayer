@@ -80,6 +80,16 @@ MediaPlayer.i18n.RegisterLanguage("en", {
 	["mp.settings.show_radius"]         = "Show Proximity Radius",
 	["mp.settings.subtitles"]           = "Subtitles",
 	["mp.settings.subtitles_off"]       = "Off",
+	["mp.settings.subtitle_language"]   = "Preferred language",
+	["mp.settings.subtitle_track"]      = "Track",
+	["mp.settings.subtitle_styling"]    = "Use the subtitle styling of the video (fonts, colors, positions)",
+	["mp.settings.subtitles_unavailable"] = "Not available for this video",
+	["mp.settings.subtitles_loading"]   = "Loading...",
+	["mp.settings.subtitles_failed"]    = "Could not read the tracks of this video",
+	["mp.settings.subtitles_none"]      = "No subtitle tracks in this video",
+	["mp.settings.audio_track"]         = "Audio Track",
+	["mp.settings.audio_none"]          = "No audio tracks found",
+	["mp.settings.audio_track_soon"]    = "Switching audio tracks is not supported yet.",
 
 	-- Rendering fallbacks
 	["mp.ui.unsupported_media"]         = "Unsupported media type",

@@ -86,6 +86,9 @@ local function setupPanel( panel )
 		panel = vgui.Create("DMediaPlayerHTML")
 	end
 
+	-- Give the cursor back if the previous owner was hovering the page
+	panel:EndMouseHover()
+
 	-- Hide panel
 	-- panel:SetSize(0, 0)
 	panel:SetPos(0, 0)

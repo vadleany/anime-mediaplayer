@@ -25,7 +25,8 @@ Keep `mediaplayer_allow_webpages` disabled on public servers unless unrestricted
 | `mediaplayer_draw_thumbnails` | `0` | Yes | Draws thumbnails on screens |
 | `mediaplayer_proximity_min` | `100` | Yes | Distance where proximity volume is full |
 | `mediaplayer_proximity_max` | `1000` | Yes | Distance where proximity volume reaches zero |
-| `mediaplayer_cc_lang` | `off` | Yes | YouTube caption language code; `off` disables captions |
+| `mediaplayer_cc_lang` | `off` | Yes | Subtitle language code for YouTube and embedded MKV subtitles; `off` disables subtitles |
+| `mediaplayer_subtitle_styling` | `1` | Yes | Draws embedded ASS subtitles with the file's own styling and fonts |
 
 Most client settings are also exposed through the in-game **Media Player** menubar options.
 

@@ -42,7 +42,7 @@ local function getScreenPos( ent, aimVector )
 		return -- out of screen bounds
 	end
 
-	return x / w, y / h
+	return x / w, y / h, hitPos
 end
 
 function MediaPlayer.DispatchScreenTrace( func, aimVector )
@@ -74,6 +74,119 @@ local function mousePressed( mouseCode, aimVector )
 	MediaPlayer.DispatchScreenTrace( mpMouseReleased, aimVector )
 end
 hook.Add( "GUIMouseReleased", "MediaPlayer.ScreenIntersect", mousePressed )
+
+
+--[[---------------------------------------------------------
+	Screen cursor
+
+	While the context menu is held open and the mouse is over a
+	screen, the page gets a cursor at that spot. The browser is kept
+	under the real cursor (see DMediaPlayerHTML:MouseHoverAt), so
+	left click, right click and scrolling reach the page as native
+	input instead of going to the world.
+-----------------------------------------------------------]]
+
+local CURSOR_HOOK = "MediaPlayer.ScreenCursor"
+
+-- Seconds to wait before retaking the cursor after another panel
+-- (e.g. the sidebar) took it from the page.
+local CURSOR_RETRY_DELAY = 0.25
+
+local hoveredPlayer
+local nextCursorTime = 0
+
+local function isOccluded( ent, eyePos, hitPos )
+	local tr = util.TraceLine({
+		start = eyePos,
+		endpos = hitPos,
+		filter = LocalPlayer()
+	})
+
+	return tr.Hit and tr.Entity ~= ent
+end
+
+-- Returns the closest unobstructed screen along the aim vector.
+local function findScreenAt( aimVector )
+	local eyePos = LocalPlayer():EyePos()
+	local bestMP, bestX, bestY, bestHitPos, bestDistSqr
+
+	for _, mp in pairs( MediaPlayer.List ) do
+		local ent = mp.Entity
+		if IsValid( mp ) and IsValid( ent ) and not ent:IsDormant() then
+			local x, y, hitPos = getScreenPos( ent, aimVector )
+			if x then
+				local distSqr = hitPos:DistToSqr( eyePos )
+				if not bestDistSqr or distSqr < bestDistSqr then
+					bestMP, bestX, bestY, bestHitPos, bestDistSqr = mp, x, y, hitPos, distSqr
+				end
+			end
+		end
+	end
+
+	-- The page takes over the mouse, so don't grab it through walls or props.
+	if bestMP and not isOccluded( bestMP.Entity, eyePos, bestHitPos ) then
+		return bestMP, bestX, bestY
+	end
+end
+
+local function stopScreenCursor()
+	hook.Remove( "Think", CURSOR_HOOK )
+	nextCursorTime = 0
+
+	if hoveredPlayer then
+		if IsValid( hoveredPlayer ) then
+			hoveredPlayer:OnMouseLeft()
+		end
+
+		hoveredPlayer = nil
+	end
+end
+
+local function updateScreenCursor()
+	local menu = g_ContextMenu
+
+	-- OnContextMenuClose doesn't run while keys are being trapped, so also
+	-- stop if the menu went away without it.
+	if not vgui.CursorVisible() or ( IsValid( menu ) and not menu:IsVisible() ) then
+		stopScreenCursor()
+		return
+	end
+
+	if hoveredPlayer and not IsValid( hoveredPlayer ) then
+		hoveredPlayer = nil
+	end
+
+	-- IsWorldClicking is only true while the mouse is over the open world,
+	-- so it tells us no other panel owns the cursor. Once the page has the
+	-- cursor this is false by design, so only check it before then.
+	if not hoveredPlayer and
+			( not LocalPlayer():IsWorldClicking() or RealTime() < nextCursorTime ) then
+		return
+	end
+
+	local mp, x, y = findScreenAt( gui.ScreenToVector( gui.MousePos() ) )
+
+	if hoveredPlayer and hoveredPlayer ~= mp then
+		hoveredPlayer:OnMouseLeft()
+		hoveredPlayer = nil
+	end
+
+	if not mp then return end
+
+	if mp:OnMouseMoved( x, y ) then
+		hoveredPlayer = mp
+	elseif hoveredPlayer then
+		-- Another panel took the cursor from the page
+		hoveredPlayer = nil
+		nextCursorTime = RealTime() + CURSOR_RETRY_DELAY
+	end
+end
+
+-- Only run per-frame work while the context menu is open
+hook.Add( "OnContextMenuOpen", CURSOR_HOOK, function()
+	hook.Add( "Think", CURSOR_HOOK, updateScreenCursor )
+end )
+hook.Add( "OnContextMenuClose", CURSOR_HOOK, stopScreenCursor )
 
 
 --[[---------------------------------------------------------

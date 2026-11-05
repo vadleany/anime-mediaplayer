@@ -290,7 +290,14 @@ if CLIENT then
 		local ext = path and path:match("[^/]+%.(%S+)$") or ""
 
 		if VideoMimeTypes[ext] then
-			return VideoEmbedHTML:format(url)
+			local html = VideoEmbedHTML:format(url)
+
+			-- embedded subtitles of MKV files (see cl_subtitles.lua)
+			if self._subtitles then
+				html = html .. MediaPlayer.Subtitles.PageScript
+			end
+
+			return html
 		else
 			return ImageEmbedHTML:format(url)
 		end
@@ -305,8 +312,15 @@ if CLIENT then
 
 		BaseClass.OnBrowserReady( self, browser )
 
+		MediaPlayer.Subtitles.Attach( self, browser )
+
 		local html = self.WrapHTML( self:GetHTML() )
 		browser:SetHTML( html )
+	end
+
+	function SERVICE:Stop()
+		MediaPlayer.Subtitles.Detach( self )
+		BaseClass.Stop( self )
 	end
 
 	function SERVICE:Pause()
@@ -323,6 +337,12 @@ if CLIENT then
 	end
 
 	function SERVICE:Sync()
+		local subtitles = self._subtitles
+
+		if subtitles then
+			subtitles:Update()
+		end
+
 		local seekTime = self:CurrentTime()
 		if IsValid(self.Browser) and self:IsTimed() and seekTime > 0 then
 			self.Browser:RunJavascript(JS_Seek:format(seekTime))

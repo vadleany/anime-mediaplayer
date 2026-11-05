@@ -269,3 +269,11 @@ end
 function MEDIAPLAYER:OnMouseWheeled( scrollDelta )
 	-- no-op
 end
+
+function MEDIAPLAYER:OnMouseMoved( x, y )
+	return false -- no-op
+end
+
+function MEDIAPLAYER:OnMouseLeft()
+	-- no-op
+end

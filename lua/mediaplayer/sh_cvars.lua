@@ -40,4 +40,7 @@ if CLIENT then
 	-- Draw embedded ASS subtitles with the styling, fonts and positions the file defines.
 	MediaPlayer.Cvars.SubtitleStyling = CreateClientConVar( "mediaplayer_subtitle_styling", "1", true, false )
 
+	-- Choose where embedded MKV subtitles are rendered: on the player or on the HUD.
+	MediaPlayer.Cvars.SubtitleMode = CreateClientConVar( "mediaplayer_subtitle_mode", "video", true, false )
+
 end

@@ -463,12 +463,208 @@ local JS_Load = "if(window.MPSubs)MPSubs.load('%s',%s);"
 local JS_Font = "if(window.MPSubs)MPSubs.font('%s');"
 local JS_Clear = "if(window.MPSubs)MPSubs.clear();"
 
+-- A separate, transparent full-screen page for the local player's HUD. It deliberately
+-- mirrors the canvas-only JASSUB 1.8.8 probe: no video element, and time is pushed by Lua.
+Subtitles.HUDPageScript = [=[
+<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+html,body{margin:0;padding:0;background:transparent;overflow:hidden;width:100%;height:100%}
+#c{position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none}
+</style></head><body><canvas id="c"></canvas><script>
+(function(){
+ var DIR='__DIR__', CDN='https://cdn.jsdelivr.net/npm/jassub@1.8.8/dist/';
+ var canvas=document.getElementById('c'), renderer=null, state='idle', latest=0, currentAss=null;
+ var fontBuffers=[], fontLoads=[], base={t:0,p:false,r:1,at:performance.now()};
+ var logged={};
+ function log(m){m=String(m).slice(0,200);if(logged[m])return;logged[m]=true;if(window.gmod&&gmod.hudLog)gmod.hudLog(m);}
+ function announce(){var n=0,iv=setInterval(function(){if(window.gmod&&gmod.hudReady){clearInterval(iv);gmod.hudReady();}else if(++n>100)clearInterval(iv);},100);}
+ function get(url,type){return new Promise(function(resolve,reject){var x=new XMLHttpRequest();x.open('GET',url);if(type!=='text')x.responseType=type;x.onload=function(){if(x.status>=400)return reject(new Error('HTTP '+x.status));resolve(type==='text'?x.responseText:x.response);};x.onerror=function(){reject(new Error('request failed: '+url.slice(-24)));};x.send();});}
+ function loadScript(url){return new Promise(function(resolve,reject){var s=document.createElement('script');s.onload=resolve;s.onerror=function(){reject(new Error('JASSUB script load failed'));};s.src=url;document.head.appendChild(s);});}
+ function now(){return base.p?base.t:base.t+(performance.now()-base.at)/1000*base.r;}
+ function resize(){var w=Math.max(1,window.innerWidth),h=Math.max(1,window.innerHeight);canvas.width=w;canvas.height=h;if(renderer){renderer._videoWidth=w;renderer._videoHeight=h;try{renderer.resize(w,h,0,0);}catch(e){log('resize failed: '+e.message);}}}
+ function addFontData(data){if(!data||!data.byteLength)return;var bytes=new Uint8Array(data);fontBuffers.push(bytes);if(renderer&&state==='ready'){try{renderer.addFont(bytes);}catch(e){log('addFont failed: '+e.message);}}}
+ function font(id){if(typeof id!=='string'||!/^[0-9]+_[0-9]+$/.test(id))return;var promise=get(DIR+'f'+id+'.dat','arraybuffer').then(addFontData).catch(function(e){log('font '+id+': '+e.message);});fontLoads.push(promise);}
+ function start(ass,mine){
+   state='loading';
+   Promise.all(fontLoads.slice()).then(function(){return loadScript(CDN+'jassub.umd.js');}).then(function(){
+     var J=window.JASSUB&&(window.JASSUB.default||window.JASSUB);if(!J)throw new Error('JASSUB global missing');
+     return get(CDN+'jassub-worker.js','text').then(function(code){
+       var workerUrl=URL.createObjectURL(new Blob([code],{type:'text/javascript'}));
+       var initialFontCount=fontBuffers.length;
+       resize();renderer=new J({canvas:canvas,subContent:ass,fonts:fontBuffers.slice(),workerUrl:workerUrl,wasmUrl:CDN+'jassub-worker.wasm',modernWasmUrl:CDN+'jassub-worker-modern.wasm',legacyWasmUrl:CDN+'jassub-worker.wasm.js',availableFonts:{'liberation sans':CDN+'default.woff2'},onDemandRender:false,targetFps:30});
+       renderer._videoWidth=canvas.width;renderer._videoHeight=canvas.height;
+       renderer.addEventListener('ready',function(){state='ready';resize();for(var i=initialFontCount;i<fontBuffers.length;i++)renderer.addFont(fontBuffers[i]);if(currentAss&&currentAss!==ass)renderer.setTrack(currentAss);else if(!currentAss){try{renderer.freeTrack();}catch(e){}}log('JASSUB ready');});
+       renderer.addEventListener('error',function(e){log('JASSUB error: '+((e.error&&e.error.message)||e.message||e));});
+     });
+   }).catch(function(e){state='failed';log('renderer failed: '+e.message);});
+ }
+ function load(id){if(typeof id!=='string'||!/^[0-9]+_[0-9]+$/.test(id))return;var mine=++latest;
+   get(DIR+'a'+id+'.txt','text').then(function(ass){if(mine!==latest)return;if(!ass||ass.indexOf('[Events]')<0)throw new Error('invalid ASS data');currentAss=ass;
+     if(renderer&&state==='ready'){renderer.setTrack(ass);}else if(state==='idle'||state==='failed'){start(ass,mine);}
+   }).catch(function(e){if(mine===latest)log('subtitle load failed: '+e.message);});
+ }
+ function clear(){latest++;currentAss=null;if(renderer&&state==='ready'){try{renderer.freeTrack();}catch(e){}}}
+ var HUD_TIME_OFFSET=0.15; // Compensate for the service clock running slightly ahead of the decoded video.
+ window.MPHUD={sync:function(t,p,r){base={t:Math.max(0,(Number(t)||0)-HUD_TIME_OFFSET),p:!!p,r:Number(r)||1,at:performance.now()};},load:load,font:font,clear:clear,resize:resize};
+ setInterval(function(){if(renderer&&state==='ready'){try{renderer.setCurrentTime(base.p,now(),base.r);}catch(e){log('clock update failed: '+e.message);}}},33);
+ window.addEventListener('resize',resize);resize();announce();
+})();
+</script></body></html>
+]=]
+Subtitles.HUDPageScript = Subtitles.HUDPageScript:gsub( "__DIR__", ASSET_URL )
+
+local function HUDEnabled()
+	local cvar = MediaPlayer.Cvars.SubtitleMode
+	return cvar and cvar:GetString():lower() == "hud" or false
+end
+
+local function HUDAssTime( seconds )
+	local cs = math.floor( seconds * 100 + 0.5 )
+	return ( "%d:%02d:%02d.%02d" ):format( math.floor( cs / 360000 ), math.floor( cs / 6000 ) % 60, math.floor( cs / 100 ) % 60, cs % 100 )
+end
+
+local HUD_ASS_HEADER = table.concat( {
+	"[Script Info]", "ScriptType: v4.00+", "PlayResX: 1920", "PlayResY: 1080", "",
+	"[V4+ Styles]",
+	"Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+	"Style: Default,Arial,48,&H00FFFFFF,&H0000FFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,1,2,40,40,35,1", "",
+	"[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text", ""
+}, "\n" )
+
+-- JASSUB always receives ASS. For non-ASS tracks (or when styling is disabled), build
+-- a simple ASS script from the already-sanitized event text.
+local function SerializeHUDAss( track, events )
+	if Matroska.IsAssTrack( track ) and StylingEnabled() then
+		local header = Matroska.GetAssHeader( track )
+		if header then return SerializeAss( header, events ) end
+	end
+
+	local out = { HUD_ASS_HEADER }
+	for _, event in ipairs( events ) do
+		local text = event.text
+
+		-- ASS events carry their original Dialogue line rather than plain text.
+		if not text and event.line then
+			text = event.line:match( "^Dialogue:[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,(.*)$" )
+			if text then text = text:gsub( "{[^}]*}", "" ) end
+		end
+
+		if text then
+			text = text:gsub( "[\r\n]+", "\\N" )
+			out[#out + 1] = ( "Dialogue: 0,%s,%s,Default,,0,0,0,,%s\n" ):format(
+				HUDAssTime( event.start ), HUDAssTime( event.stop ), text )
+		end
+	end
+	return table.concat( out )
+end
+
 --[[---------------------------------------------------------
 	Job
 -----------------------------------------------------------]]
 
 local Job = {}
 Job.__index = Job
+
+function Job:RemoveHUD()
+	if self.hudTimer then timer.Remove( self.hudTimer ) self.hudTimer = nil end
+	if IsValid( self.hudPanel ) then self.hudPanel:Remove() end
+	self.hudPanel = nil
+	self.hudPageReady = false
+	self.hudFontsSent = 0
+	self.hudLastTime = nil
+	self.hudLastPaused = nil
+end
+
+function Job:AttachHUD()
+	if self.cancelled or not HUDEnabled() or IsValid( self.hudPanel ) then return end
+
+	local panel = vgui.Create( "DHTML", GetHUDPanel() )
+	panel:SetPos( 0, 0 )
+	panel:SetSize( ScrW(), ScrH() )
+	panel:SetMouseInputEnabled( false )
+	panel:SetKeyboardInputEnabled( false )
+	self.hudPanel = panel
+	self.hudPageReady = false
+	self.hudFontsSent = 0
+
+	panel:AddFunction( "gmod", "hudReady", function()
+		if self.cancelled or self.hudPanel ~= panel then return end
+		self.hudPageReady = true
+		Log( "HUD page ready" )
+		local now = self.media and self.media.CurrentTime and self.media:CurrentTime() or -1
+		if now >= 0 then
+			local paused = self.media.IsPaused and self.media:IsPaused() or false
+			panel:QueueJavascript( ( "window.MPHUD&&MPHUD.sync(%.3f,%s,1)" ):format( now, tostring( paused ) ) )
+		end
+		self:SendHUD()
+	end )
+
+	panel:AddFunction( "gmod", "hudLog", function( message )
+		if type( message ) == "string" then Log( "HUD page:", message:sub( 1, 200 ) ) end
+	end )
+
+	local seenConsole = {}
+	function panel:ConsoleMessage( message )
+		message = tostring( message )
+		if seenConsole[message] then return end
+		seenConsole[message] = true
+		Log( "HUD console:", message:sub( 1, 200 ) )
+	end
+
+	panel:SetHTML( Subtitles.HUDPageScript )
+
+	self.hudTimer = "mp_subtitle_hud_sync_" .. self.id
+	timer.Create( self.hudTimer, 0.3, 0, function()
+		if self.cancelled or not IsValid( self.hudPanel ) then self:RemoveHUD() return end
+
+		local w, h = ScrW(), ScrH()
+		if panel:GetWide() ~= w or panel:GetTall() ~= h then
+			panel:SetPos( 0, 0 )
+			panel:SetSize( w, h )
+		end
+
+		local media = self.media
+		if not media or not media.CurrentTime then return end
+		local now = media:CurrentTime()
+		if now < 0 then return end
+
+		local paused = media.IsPaused and media:IsPaused() or false
+
+		-- While playing, periodically correct the browser clock. While paused,
+		-- send only when the position or pause state actually changes.
+		if paused and self.hudLastPaused == true and self.hudLastTime == now then return end
+		panel:QueueJavascript( ( "window.MPHUD&&MPHUD.sync(%.3f,%s,1)" ):format( now, tostring( paused ) ) )
+		self.hudLastTime, self.hudLastPaused = now, paused
+	end )
+end
+
+function Job:SendHUD()
+	local panel = self.hudPanel
+	if self.cancelled or not self.hudPageReady or not IsValid( panel ) then return end
+
+	for i = self.hudFontsSent + 1, #self.fontFiles do
+		panel:QueueJavascript( ( "window.MPHUD&&MPHUD.font('%s')" ):format( self.fontFiles[i] ) )
+	end
+	self.hudFontsSent = #self.fontFiles
+
+	if self.current and file.Exists( AssPath( self.current ), "DATA" ) then
+		panel:QueueJavascript( ( "window.MPHUD&&MPHUD.load('%s')" ):format( self.current ) )
+	end
+end
+
+function Job:HUDChanged()
+	if self.cancelled then return end
+
+	if not HUDEnabled() then
+		self:RemoveHUD()
+		self:Send()
+		return
+	end
+
+	self:AttachHUD()
+	self:Send() -- clear the player-page subtitles while HUD mode is selected
+	if self:WantsStyle() then self:EnsureFonts() end
+	if self.window then self:Rewrite() else self:SendHUD() end
+end
 
 local function NewJob( media )
 	subtitleJobs = subtitleJobs + 1
@@ -488,6 +684,7 @@ local function NewJob( media )
 		openRetries = 0, nextOpenAt = 0,
 		windowRetries = 0, nextWindowAt = 0,
 		seq = 0, fontFiles = {}, fontsSent = 0,
+		hudFontsSent = 0,
 	}, Job )
 end
 
@@ -636,6 +833,8 @@ function Job:ResetWindow()
 	self:DeleteWindowFiles()
 	self.current = nil
 	self:ClearPage()
+	local hud = self.hudPanel
+	if IsValid( hud ) then hud:QueueJavascript( "window.MPHUD&&MPHUD.clear()" ) end
 end
 
 -- Called from the media's Sync(): opens the file if the language setting asks for
@@ -721,8 +920,11 @@ function Job:WriteWindow( events, from, to )
 		styled = false
 	end
 
+	local hudAss = HUDEnabled() and SerializeHUDAss( track, events ) or nil
+	local assContent = styled and SerializeAss( header, events ) or hudAss
+
 	if not WriteChecked( PlainPath( key ), SerializePlain( events ) )
-		or ( styled and not WriteChecked( AssPath( key ), SerializeAss( header, events ) ) ) then
+		or ( assContent and not WriteChecked( AssPath( key ), assContent ) ) then
 		Log( "could not write to the data folder (" .. SUBTITLE_DIR .. ")" )
 		self.dead = true
 		file.Delete( PlainPath( key ) )
@@ -738,6 +940,7 @@ function Job:WriteWindow( events, from, to )
 	self.displayed = true
 
 	self:Send()
+	self:SendHUD()
 	Changed()
 end
 
@@ -806,6 +1009,7 @@ function Job:PumpFonts()
 					Log( "font ready:", font.name )
 					self.fontFiles[#self.fontFiles + 1] = key
 					self:Send()
+					self:SendHUD()
 				end
 
 				self:PumpFonts()
@@ -864,6 +1068,11 @@ function Job:Send()
 	local browser = self.browser
 	if self.cancelled or not self.pageReady or not IsValid( browser ) then return end
 
+	if HUDEnabled() then
+		browser:QueueJavascript( JS_Clear )
+		return
+	end
+
 	for i = self.fontsSent + 1, #self.fontFiles do
 		browser:QueueJavascript( JS_Font:format( self.fontFiles[i] ) )
 	end
@@ -880,6 +1089,7 @@ function Job:Cancel()
 	self.cancelled = true
 	self.epoch = self.epoch + 1
 	Subtitles.jobs[self] = nil
+	self:RemoveHUD()
 
 	self:DeleteWindowFiles()
 
@@ -933,6 +1143,7 @@ function Subtitles.Attach( media, browser )
 	end
 
 	job:AttachPage( browser )
+	if HUDEnabled() then job:HUDChanged() end
 
 	return job
 end
@@ -1049,3 +1260,10 @@ cvars.AddChangeCallback( "mediaplayer_subtitle_styling", function()
 		job:StylingChanged()
 	end
 end, "MP.Subtitles" )
+
+
+cvars.AddChangeCallback( "mediaplayer_subtitle_mode", function()
+	for job in pairs( Subtitles.jobs ) do
+		job:HUDChanged()
+	end
+end, "MP.SubtitlesMode" )

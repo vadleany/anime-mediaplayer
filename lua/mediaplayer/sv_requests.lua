@@ -8,8 +8,46 @@ util.AddNetworkString( "MEDIAPLAYER.RequestRemove" )
 util.AddNetworkString( "MEDIAPLAYER.RequestRepeat" )
 util.AddNetworkString( "MEDIAPLAYER.RequestShuffle" )
 util.AddNetworkString( "MEDIAPLAYER.RequestLock" )
+util.AddNetworkString( "MEDIAPLAYER.ChatLinkRequest" )
 
 local REQUEST_DELAY = 0.2
+
+-- Queue chat links only when the sender is aiming at a media player.
+-- Returning an empty message suppresses the link for every client.
+hook.Add( "PlayerSay", "MediaPlayer.ChatLinkRequest", function( ply, message )
+	if not isstring(message) or not IsValid(ply) then return end
+
+	local trace = ply:GetEyeTrace()
+	local ent = trace and trace.Entity
+	if not ( IsValid(ent) and ent.IsMediaPlayerEntity ) then return end
+
+	local mp = MediaPlayer.GetByObject( ent )
+	if not IsValid(mp) then return end
+
+	local allowWebpages = MediaPlayer.Cvars.AllowWebpages:GetBool()
+	for url in string.gmatch( message, "https?://[^%s<>]+" ) do
+		-- Strip punctuation commonly placed immediately after chat links.
+		while #url > 0 do
+			local last = url:sub(-1)
+			if last == "." or last == "," or last == "!" or last == "?" or
+				last == ";" or last == ":" or last == ")" or last == "]" or
+				last == "}" or last == ">" or last == "\"" or last == "'" then
+				url = url:sub(1, -2)
+			else
+				break
+			end
+		end
+
+		if url ~= "" and #url <= 2048 and ( MediaPlayer.ValidUrl(url) or allowWebpages ) then
+			net.Start( "MEDIAPLAYER.ChatLinkRequest" )
+				net.WriteString( mp:GetId() )
+				net.WriteString( url )
+			net.Send( ply )
+			return ""
+		end
+	end
+end )
+
 
 local function RequestWrapper( func )
 	local nextRequests = {}

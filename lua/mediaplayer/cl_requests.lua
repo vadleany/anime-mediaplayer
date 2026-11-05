@@ -204,3 +204,14 @@ function MediaPlayer.RequestLock( mp )
 	net.SendToServer()
 
 end
+
+-- The server only forwards chat links after confirming the sender is aiming
+-- at a media player. Keeping the metadata pre-request on the client preserves
+-- the normal MediaPlayer.Request pipeline.
+net.Receive( "MEDIAPLAYER.ChatLinkRequest", function()
+	local mpId = net.ReadString()
+	local url = net.ReadString()
+
+	if mpId == "" or url == "" or #url > 2048 then return end
+	MediaPlayer.Request( mpId, url )
+end )

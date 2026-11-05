@@ -491,6 +491,12 @@ function PANEL:BuildContent()
 	end)
 
 	CreateCheckbox(scroll, "mp.settings.subtitle_styling", "mediaplayer_subtitle_styling")
+	CreateFieldLabel(scroll, "mp.settings.subtitle_mode")
+	self.SubtitleModeSelect = CreateTrackSelect(scroll, function(mode)
+		RunConsoleCommand("mediaplayer_subtitle_mode", mode)
+		self:RefreshSubtitleMode(mode)
+	end)
+	self:RefreshSubtitleMode()
 
 	CreateSectionLabel(scroll, "mp.settings.audio_track")
 
@@ -518,6 +524,16 @@ local StatusText = {
 	none        = "mp.settings.subtitles_none",
 	noaudio     = "mp.settings.audio_none",
 }
+
+function PANEL:RefreshSubtitleMode(mode)
+	mode = (mode or GetConVarString("mediaplayer_subtitle_mode") or "video"):lower()
+	if mode ~= "hud" then mode = "video" end
+
+	self.SubtitleModeSelect:SetChoices({
+		{ label = L("mp.settings.subtitle_mode_video"), value = "video", selected = mode == "video" },
+		{ label = L("mp.settings.subtitle_mode_hud"), value = "hud", selected = mode == "hud" },
+	}, true)
+end
 
 function PANEL:OnMediaPlayerChanged(mp)
 	self.mp = mp
@@ -571,6 +587,7 @@ function PANEL:RefreshTracks()
 	local job = self:GetSubtitleJob()
 
 	self:RefreshLanguage()
+	self:RefreshSubtitleMode()
 
 	-- The track list is read on demand, so it is also available while subtitles are off.
 	if job then

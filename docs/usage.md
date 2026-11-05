@@ -17,6 +17,7 @@ The spawnable configurations and their screen transforms are defined in `lua/aut
 - Press **E** on a screen to activate/use it.
 - Right-click and open the Sandbox properties for Media Player options.
 - Hold **C** while looking at an active player to open the player sidebar/request UI.
+- With **Screen cursor** enabled in the settings (off by default), keep **C** held and move the mouse over a screen that is playing a page to get a cursor on it. Left click, right click and scrolling then go to the page instead of the world. This works for services that accept mouse input, such as YouTube and webpages, and not through walls or props.
 - Use the sidebar to submit URLs and control playback/queue options.
 - Fullscreen is a local client display mode; it does not change the playback state for other viewers.
 

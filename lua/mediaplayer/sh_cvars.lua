@@ -29,6 +29,9 @@ if CLIENT then
 	MediaPlayer.Cvars.ProximityMin = CreateClientConVar( "mediaplayer_proximity_min", "100", true, false )
 	MediaPlayer.Cvars.ProximityMax = CreateClientConVar( "mediaplayer_proximity_max", "1000", true, false )
 
+	-- Hold the context menu key over a screen to get a cursor on the page, with left/right click and scroll.
+	MediaPlayer.Cvars.ScreenCursor = CreateClientConVar( "mediaplayer_screen_cursor", "0", true, false )
+
 	-- Per-viewer subtitle language: YouTube captions (passed to the player page) and
 	-- embedded MKV subtitles (direct media).
 	-- Language code (e.g. "ko", "en"); "off" disables captions.

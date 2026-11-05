@@ -466,6 +466,10 @@ function PANEL:BuildContent()
 	-- Set initial state
 	UpdateProximityControlsEnabled()
 
+	-- Controls
+	CreateSectionLabel(scroll, "mp.settings.controls")
+	CreateCheckbox(scroll, "mp.settings.screen_cursor", "mediaplayer_screen_cursor")
+
 	-- Subtitles: the language preference (mediaplayer_cc_lang) and the track of the video that is playing
 	CreateSectionLabel(scroll, "mp.settings.subtitles")
 

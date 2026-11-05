@@ -182,11 +182,29 @@ local function updateScreenCursor()
 	end
 end
 
--- Only run per-frame work while the context menu is open
-hook.Add( "OnContextMenuOpen", CURSOR_HOOK, function()
-	hook.Add( "Think", CURSOR_HOOK, updateScreenCursor )
-end )
+-- Only run per-frame work while the context menu is open and the setting is on
+local function startScreenCursor()
+	if MediaPlayer.Cvars.ScreenCursor:GetBool() then
+		hook.Add( "Think", CURSOR_HOOK, updateScreenCursor )
+	end
+end
+
+hook.Add( "OnContextMenuOpen", CURSOR_HOOK, startScreenCursor )
 hook.Add( "OnContextMenuClose", CURSOR_HOOK, stopScreenCursor )
+
+-- The setting lives in the sidebar, which is only reachable while the context
+-- menu is open, so it has to take effect without reopening the menu.
+cvars.AddChangeCallback( "mediaplayer_screen_cursor", function( _, _, new )
+	if not tobool( new ) then
+		stopScreenCursor()
+		return
+	end
+
+	local menu = g_ContextMenu
+	if IsValid( menu ) and menu:IsVisible() then
+		startScreenCursor()
+	end
+end, CURSOR_HOOK )
 
 
 --[[---------------------------------------------------------

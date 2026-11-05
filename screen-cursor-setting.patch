@@ -1,0 +1,152 @@
+From f2ad0562595af26dbfe70d005bab03f1cb20f70d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 11:01:14 +0000
+Subject: [PATCH] Make the screen cursor optional (default off)
+
+Adds the client convar mediaplayer_screen_cursor and a Controls section with a
+checkbox in the sidebar settings. When off, no hook runs and the page never
+takes the cursor. Toggling applies immediately, including while the context
+menu is open, and releases the page when turned off mid-hover.
+---
+ README.md                        |  1 +
+ docs/commands.md                 |  1 +
+ docs/configuration.md            |  1 +
+ docs/usage.md                    |  1 +
+ lua/mediaplayer/cl_screen.lua    | 26 ++++++++++++++++++++++----
+ lua/mediaplayer/i18n/lang/en.lua |  2 ++
+ lua/mediaplayer/sh_cvars.lua     |  3 +++
+ lua/mp_menu/settings.lua         |  4 ++++
+ 8 files changed, 35 insertions(+), 4 deletions(-)
+
+diff --git a/README.md b/README.md
+index 65aa65a..26bbd7d 100644
+--- a/README.md
++++ b/README.md
+@@ -104,6 +104,7 @@ For audio attached to props, select **Media Player → Spatial Media Player** in
+ | `mediaplayer_proximity_min` | `100` | Distance at which proximity volume is full |
+ | `mediaplayer_proximity_max` | `1000` | Distance at which proximity volume reaches zero |
+ | `mediaplayer_cc_lang` | `off` | YouTube caption language; `off` disables captions |
++| `mediaplayer_screen_cursor` | `0` | Control a screen's page with the mouse while holding the context menu key |
+ 
+ `mediaplayer_debug` is available in both server and client realms; set it in the console where you need diagnostic output. See [Configuration](docs/configuration.md) for flags, persistence, and usage details.
+ 
+diff --git a/docs/commands.md b/docs/commands.md
+index ac05610..efc5941 100644
+--- a/docs/commands.md
++++ b/docs/commands.md
+@@ -54,6 +54,7 @@ These settings are local to each player and can be changed in that player's clie
+ | `mediaplayer_proximity_max` | `1000` | Upper bound for the client's proximity-based audio behavior. |
+ | `mediaplayer_cc_lang` | `off` | Preferred subtitle language code for YouTube captions and embedded MKV subtitles (for example, `en` or `ko`). Use `off` to disable subtitles. |
+ | `mediaplayer_subtitle_styling` | `1` | Draws embedded ASS subtitles the way the video file defines them (styles, positions, effects and its embedded fonts). Set to `0` for plain text. |
++| `mediaplayer_screen_cursor` | `0` | Lets you control a screen's page with the mouse: while the context menu key is held and the mouse is over a screen that accepts mouse input, the page gets a cursor and receives left click, right click and scrolling. Off by default. |
+ 
+ Examples:
+ 
+diff --git a/docs/configuration.md b/docs/configuration.md
+index e8a88e9..f193b2e 100644
+--- a/docs/configuration.md
++++ b/docs/configuration.md
+@@ -27,6 +27,7 @@ Keep `mediaplayer_allow_webpages` disabled on public servers unless unrestricted
+ | `mediaplayer_proximity_max` | `1000` | Yes | Distance where proximity volume reaches zero |
+ | `mediaplayer_cc_lang` | `off` | Yes | Subtitle language code for YouTube and embedded MKV subtitles; `off` disables subtitles |
+ | `mediaplayer_subtitle_styling` | `1` | Yes | Draws embedded ASS subtitles with the file's own styling and fonts |
++| `mediaplayer_screen_cursor` | `0` | Yes | Shows a cursor on a screen while the context menu key is held over it, and sends left click, right click and scrolling to the page |
+ 
+ Most client settings are also exposed through the in-game **Media Player** menubar options.
+ 
+diff --git a/docs/usage.md b/docs/usage.md
+index c19ae58..f57aedf 100644
+--- a/docs/usage.md
++++ b/docs/usage.md
+@@ -17,6 +17,7 @@ The spawnable configurations and their screen transforms are defined in `lua/aut
+ - Press **E** on a screen to activate/use it.
+ - Right-click and open the Sandbox properties for Media Player options.
+ - Hold **C** while looking at an active player to open the player sidebar/request UI.
++- With **Screen cursor** enabled in the settings (off by default), keep **C** held and move the mouse over a screen that is playing a page to get a cursor on it. Left click, right click and scrolling then go to the page instead of the world. This works for services that accept mouse input, such as YouTube and webpages, and not through walls or props.
+ - Use the sidebar to submit URLs and control playback/queue options.
+ - Fullscreen is a local client display mode; it does not change the playback state for other viewers.
+ 
+diff --git a/lua/mediaplayer/cl_screen.lua b/lua/mediaplayer/cl_screen.lua
+index adeb0e3..9dcefc3 100644
+--- a/lua/mediaplayer/cl_screen.lua
++++ b/lua/mediaplayer/cl_screen.lua
+@@ -182,12 +182,30 @@ local function updateScreenCursor()
+ 	end
+ end
+ 
+--- Only run per-frame work while the context menu is open
+-hook.Add( "OnContextMenuOpen", CURSOR_HOOK, function()
+-	hook.Add( "Think", CURSOR_HOOK, updateScreenCursor )
+-end )
++-- Only run per-frame work while the context menu is open and the setting is on
++local function startScreenCursor()
++	if MediaPlayer.Cvars.ScreenCursor:GetBool() then
++		hook.Add( "Think", CURSOR_HOOK, updateScreenCursor )
++	end
++end
++
++hook.Add( "OnContextMenuOpen", CURSOR_HOOK, startScreenCursor )
+ hook.Add( "OnContextMenuClose", CURSOR_HOOK, stopScreenCursor )
+ 
++-- The setting lives in the sidebar, which is only reachable while the context
++-- menu is open, so it has to take effect without reopening the menu.
++cvars.AddChangeCallback( "mediaplayer_screen_cursor", function( _, _, new )
++	if not tobool( new ) then
++		stopScreenCursor()
++		return
++	end
++
++	local menu = g_ContextMenu
++	if IsValid( menu ) and menu:IsVisible() then
++		startScreenCursor()
++	end
++end, CURSOR_HOOK )
++
+ 
+ --[[---------------------------------------------------------
+ 	Pass mouse scrolling into media player browser
+diff --git a/lua/mediaplayer/i18n/lang/en.lua b/lua/mediaplayer/i18n/lang/en.lua
+index f087f30..2bdf218 100644
+--- a/lua/mediaplayer/i18n/lang/en.lua
++++ b/lua/mediaplayer/i18n/lang/en.lua
+@@ -78,6 +78,8 @@ MediaPlayer.i18n.RegisterLanguage("en", {
+ 	["mp.settings.proximity_units"]     = "%s units",
+ 	["mp.settings.mute_unfocused"]      = "Mute When Unfocused",
+ 	["mp.settings.show_radius"]         = "Show Proximity Radius",
++	["mp.settings.controls"]            = "Controls",
++	["mp.settings.screen_cursor"]       = "Screen cursor (hold the context menu key over a screen to click, right-click and scroll the page)",
+ 	["mp.settings.subtitles"]           = "Subtitles",
+ 	["mp.settings.subtitles_off"]       = "Off",
+ 	["mp.settings.subtitle_language"]   = "Preferred language",
+diff --git a/lua/mediaplayer/sh_cvars.lua b/lua/mediaplayer/sh_cvars.lua
+index ff24b05..ff8fefa 100644
+--- a/lua/mediaplayer/sh_cvars.lua
++++ b/lua/mediaplayer/sh_cvars.lua
+@@ -29,6 +29,9 @@ if CLIENT then
+ 	MediaPlayer.Cvars.ProximityMin = CreateClientConVar( "mediaplayer_proximity_min", "100", true, false )
+ 	MediaPlayer.Cvars.ProximityMax = CreateClientConVar( "mediaplayer_proximity_max", "1000", true, false )
+ 
++	-- Hold the context menu key over a screen to get a cursor on the page, with left/right click and scroll.
++	MediaPlayer.Cvars.ScreenCursor = CreateClientConVar( "mediaplayer_screen_cursor", "0", true, false )
++
+ 	-- Per-viewer subtitle language: YouTube captions (passed to the player page) and
+ 	-- embedded MKV subtitles (direct media).
+ 	-- Language code (e.g. "ko", "en"); "off" disables captions.
+diff --git a/lua/mp_menu/settings.lua b/lua/mp_menu/settings.lua
+index a2d93a3..7bcc879 100644
+--- a/lua/mp_menu/settings.lua
++++ b/lua/mp_menu/settings.lua
+@@ -466,6 +466,10 @@ function PANEL:BuildContent()
+ 	-- Set initial state
+ 	UpdateProximityControlsEnabled()
+ 
++	-- Controls
++	CreateSectionLabel(scroll, "mp.settings.controls")
++	CreateCheckbox(scroll, "mp.settings.screen_cursor", "mediaplayer_screen_cursor")
++
+ 	-- Subtitles: the language preference (mediaplayer_cc_lang) and the track of the video that is playing
+ 	CreateSectionLabel(scroll, "mp.settings.subtitles")
+ 
+-- 
+2.43.0
+

@@ -54,6 +54,7 @@ These settings are local to each player and can be changed in that player's clie
 | `mediaplayer_proximity_max` | `1000` | Upper bound for the client's proximity-based audio behavior. |
 | `mediaplayer_cc_lang` | `off` | Preferred subtitle language code for YouTube captions and embedded MKV subtitles (for example, `en` or `ko`). Use `off` to disable subtitles. |
 | `mediaplayer_subtitle_styling` | `1` | Draws embedded ASS subtitles the way the video file defines them (styles, positions, effects and its embedded fonts). Set to `0` for plain text. |
+| `mediaplayer_screen_cursor` | `0` | Lets you control a screen's page with the mouse: while the context menu key is held and the mouse is over a screen that accepts mouse input, the page gets a cursor and receives left click, right click and scrolling. Off by default. |
 
 Examples:
 

@@ -104,6 +104,7 @@ For audio attached to props, select **Media Player → Spatial Media Player** in
 | `mediaplayer_proximity_min` | `100` | Distance at which proximity volume is full |
 | `mediaplayer_proximity_max` | `1000` | Distance at which proximity volume reaches zero |
 | `mediaplayer_cc_lang` | `off` | YouTube caption language; `off` disables captions |
+| `mediaplayer_screen_cursor` | `0` | Control a screen's page with the mouse while holding the context menu key |
 
 `mediaplayer_debug` is available in both server and client realms; set it in the console where you need diagnostic output. See [Configuration](docs/configuration.md) for flags, persistence, and usage details.
 

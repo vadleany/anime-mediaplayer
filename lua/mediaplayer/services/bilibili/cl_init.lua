@@ -18,6 +18,37 @@ local JS_Seek = [[
 
 local JS_Interface = [[
 (function () {
+	var CSS = [
+		'html:root, html:root body { background:#000 !important; overflow:hidden !important; }',
+		'html:root :not([data-mp-keep]) { display:none !important; }',
+		'html:root [data-mp-keep] { transform:none !important; filter:none !important; }',
+		'html:root video[data-mp-keep], html:root iframe[data-mp-keep] { position:fixed !important; top:0 !important; left:0 !important; width:100vw !important; height:100vh !important; margin:0 !important; border:0 !important; object-fit:contain !important; z-index:2147483647 !important; }'
+	].join('\n');
+
+	function injectCSS(doc) {
+		try {
+			if (!doc || doc.getElementById('mp-bili-hide-ui')) return;
+			var s = doc.createElement('style');
+			s.id = 'mp-bili-hide-ui';
+			s.textContent = CSS;
+			(doc.head || doc.documentElement).appendChild(s);
+		} catch (e) {}
+	}
+
+	// Tag the video and its ancestors (climbing out through same-origin iframes)
+	function keepChain(el) {
+		try {
+			while (el) {
+				var doc = el.ownerDocument;
+				injectCSS(doc);
+				for (; el && el !== doc.documentElement; el = el.parentElement) {
+					el.setAttribute('data-mp-keep', '');
+				}
+				el = doc.defaultView && doc.defaultView.frameElement;
+			}
+		} catch (e) {}
+	}
+
 	function findVideo(win) {
 		try {
 			if (!win || !win.document) return null;
@@ -26,8 +57,7 @@ local JS_Interface = [[
 			var frames = win.document.getElementsByTagName('iframe');
 			for (var i = 0; i < frames.length; i++) {
 				try {
-					var child = frames[i].contentWindow;
-					var vv = findVideo(child);
+					var vv = findVideo(frames[i].contentWindow);
 					if (vv) return vv;
 				} catch (e) {}
 			}
@@ -43,6 +73,8 @@ local JS_Interface = [[
 		if (player) {
 			clearInterval(checkerInterval);
 			window.MediaPlayer = player;
+
+			keepChain(player);
 
 			try { window.MediaPlayer.muted = false; } catch (e) {}
 			try {

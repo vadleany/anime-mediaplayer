@@ -25,7 +25,7 @@ Run these in the server console. Replicated ConVars are also made available to c
 | ConVar | Default | Description |
 |---|---:|---|
 | `mediaplayer_debug` | `0` | Enables verbose MediaPlayer diagnostics. Set to `1` to enable and `0` to disable. Not archived. |
-| `mediaplayer_allow_webpages` | `0` | Allows arbitrary webpage URLs through the generic webpage service. Enabling this broadens what users can load; only enable it when needed and on servers where that risk is acceptable. |
+| `mediaplayer_allow_webpages` | `1` | Allows arbitrary webpage URLs through the generic webpage service and shares viewers' input on them. Players must still turn on `mediaplayer_show_webpages` to see webpages. Set to `0` to block webpages and shared input. |
 | `mediaplayer_queue_limit` | `64` | Maximum number of items in a media-player queue. |
 | `mediaplayer_spatial_hear_radius` | `1800` | Maximum distance, in Source units, at which players are kept as listeners for spatial media anchors. |
 
@@ -34,7 +34,7 @@ Examples:
 ```text
 mediaplayer_debug 1
 mediaplayer_queue_limit 32
-mediaplayer_allow_webpages 0
+mediaplayer_allow_webpages 1
 mediaplayer_spatial_hear_radius 1800
 ```
 
@@ -54,7 +54,6 @@ These settings are local to each player and can be changed in that player's clie
 | `mediaplayer_proximity_max` | `1000` | Upper bound for the client's proximity-based audio behavior. |
 | `mediaplayer_cc_lang` | `off` | Preferred subtitle language code for YouTube captions and embedded MKV subtitles (for example, `en` or `ko`). Use `off` to disable subtitles. |
 | `mediaplayer_subtitle_styling` | `1` | Draws embedded ASS subtitles the way the video file defines them (styles, positions, effects and its embedded fonts). Set to `0` for plain text. |
-| `mediaplayer_screen_cursor` | `0` | Lets you control a screen's page with the mouse: while the context menu key is held and the mouse is over a screen that accepts mouse input, the page gets a cursor and receives left click, right click and scrolling. Off by default. |
 
 Examples:
 

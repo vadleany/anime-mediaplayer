@@ -1,0 +1,1178 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index d5375ca..0d5daa1 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -59,7 +59,7 @@ The browser side is part of the addon and must be treated as an untrusted bounda
+ - Escape or safely insert user-controlled text; do not use `innerHTML` or equivalent injection paths when text/DOM APIs are sufficient.
+ - Keep browser assets and runtime work reasonably small.
+ 
+-The addon supports an optional mode for unrestricted webpages. That feature is intentionally more dangerous than normal media playback; keep it behind its existing server-side configuration and do not silently make arbitrary webpages the default.
++The addon supports an optional mode for unrestricted webpages. That feature is intentionally more dangerous than normal media playback; keep it behind the server-side `mediaplayer_allow_webpages` switch and the per-player `mediaplayer_show_webpages` opt-in (off by default, confirmed in the UI because a webpage reveals the player's IP address), and never load a webpage for a player who hasn't opted in.
+ 
+ When a browser feature needs a new Lua bridge, prefer a narrow, named action with validated arguments over a generic "execute this" interface.
+ 
+@@ -71,7 +71,7 @@ Security decisions belong primarily on the server.
+ - Validate every network message before using its contents. Check types, ranges, ownership, permissions, and state where relevant.
+ - Privileged actions must be enforced server-side; client-side checks are only UX.
+ - Treat media URLs, redirects, webpage content, and service responses as untrusted input.
+-- Do not broaden an existing URL/webpage allowlist without considering the security impact. In particular, keep unrestricted webpage playback opt-in and server-controlled.
++- Do not broaden an existing URL/webpage allowlist without considering the security impact. In particular, keep unrestricted webpage playback server-controlled and opt-in per player, and keep relayed webpage input validated server-side (`sh_websync.lua`) and delivered to pages only as data, never as code.
+ - Avoid arbitrary code execution such as `RunString`, `CompileString`, or equivalent dynamic execution, especially when input can originate from clients or CEF.
+ - Do not expose server-only implementation details or privileged functionality to the client.
+ - Be deliberate with filesystem and database operations; user input should never become an uncontrolled path or SQL statement.
+diff --git a/README.md b/README.md
+index 26bbd7d..f45351c 100644
+--- a/README.md
++++ b/README.md
+@@ -87,7 +87,7 @@ For audio attached to props, select **Media Player → Spatial Media Player** in
+ | ConVar | Default | Description |
+ |---|---:|---|
+ | `mediaplayer_debug` | `0` | Enable verbose diagnostic logging |
+-| `mediaplayer_allow_webpages` | `0` | Allow otherwise-unmatched webpage URLs; keep disabled on public servers unless required |
++| `mediaplayer_allow_webpages` | `1` | Allow otherwise-unmatched webpage URLs and share viewers' input on them. Each player still has to opt in to seeing webpages |
+ | `mediaplayer_queue_limit` | `64` | Maximum number of queued items per media player |
+ | `mediaplayer_spatial_hear_radius` | `1800` | Maximum listener distance for spatial anchors, in Source units |
+ 
+@@ -104,6 +104,7 @@ For audio attached to props, select **Media Player → Spatial Media Player** in
+ | `mediaplayer_proximity_min` | `100` | Distance at which proximity volume is full |
+ | `mediaplayer_proximity_max` | `1000` | Distance at which proximity volume reaches zero |
+ | `mediaplayer_cc_lang` | `off` | YouTube caption language; `off` disables captions |
++| `mediaplayer_show_webpages` | `0` | Load webpages in your game. Off by default because a webpage sees your IP address; turn it on from the settings tab, which asks for confirmation |
+ | `mediaplayer_screen_cursor` | `0` | Control a screen's page with the mouse while holding the context menu key |
+ 
+ `mediaplayer_debug` is available in both server and client realms; set it in the console where you need diagnostic output. See [Configuration](docs/configuration.md) for flags, persistence, and usage details.
+diff --git a/docs/commands.md b/docs/commands.md
+index efc5941..7ef967f 100644
+--- a/docs/commands.md
++++ b/docs/commands.md
+@@ -25,7 +25,7 @@ Run these in the server console. Replicated ConVars are also made available to c
+ | ConVar | Default | Description |
+ |---|---:|---|
+ | `mediaplayer_debug` | `0` | Enables verbose MediaPlayer diagnostics. Set to `1` to enable and `0` to disable. Not archived. |
+-| `mediaplayer_allow_webpages` | `0` | Allows arbitrary webpage URLs through the generic webpage service. Enabling this broadens what users can load; only enable it when needed and on servers where that risk is acceptable. |
++| `mediaplayer_allow_webpages` | `1` | Allows arbitrary webpage URLs through the generic webpage service and shares viewers' input on them. Players must still turn on `mediaplayer_show_webpages` to see webpages. Set to `0` to block webpages and shared input. |
+ | `mediaplayer_queue_limit` | `64` | Maximum number of items in a media-player queue. |
+ | `mediaplayer_spatial_hear_radius` | `1800` | Maximum distance, in Source units, at which players are kept as listeners for spatial media anchors. |
+ 
+@@ -34,7 +34,7 @@ Examples:
+ ```text
+ mediaplayer_debug 1
+ mediaplayer_queue_limit 32
+-mediaplayer_allow_webpages 0
++mediaplayer_allow_webpages 1
+ mediaplayer_spatial_hear_radius 1800
+ ```
+ 
+diff --git a/docs/configuration.md b/docs/configuration.md
+index f193b2e..1dcbea8 100644
+--- a/docs/configuration.md
++++ b/docs/configuration.md
+@@ -7,11 +7,15 @@ ConVars are defined primarily in `lua/mediaplayer/sh_cvars.lua`. The spatial hea
+ | ConVar | Default | Flags / scope | Description |
+ |---|---:|---|---|
+ | `mediaplayer_debug` | `0` | Shared (server and client) | Enables verbose diagnostic logging in the realm where it is set |
+-| `mediaplayer_allow_webpages` | `0` | Archived, replicated | Allows otherwise-unmatched URLs to use the generic webpage service |
++| `mediaplayer_allow_webpages` | `1` | Archived, notified, replicated | Allows otherwise-unmatched URLs to use the generic webpage service, and relays viewers' mouse, scroll, keyboard and navigation on a webpage to the other viewers |
+ | `mediaplayer_queue_limit` | `64` | Replicated | Maximum number of queued items per media player |
+ | `mediaplayer_spatial_hear_radius` | `1800` | Archived, notified, replicated | Maximum distance at which players are listeners of a spatial anchor (Source units) |
+ 
+-Keep `mediaplayer_allow_webpages` disabled on public servers unless unrestricted webpage playback is an intentional feature. Arbitrary webpages are less predictable and expand the external-content attack surface. Restrict request permissions if you enable it.
++Webpages are allowed by default, but each player decides for themselves: the client setting `mediaplayer_show_webpages` (off by default) controls whether webpages load in their game at all. Loading a page reveals the player's IP address to that site, so the settings tab asks for confirmation before turning it on. Players who leave it off see a notice on the screen instead.
++
++On a shared webpage every viewer can control the page. Mouse movement, clicks, scrolling, keypresses, typed text (including passwords) and navigation are sent to the other viewers who have webpages enabled, and theirs to you. There is no separate setting for this; it follows `mediaplayer_allow_webpages`. Set `mediaplayer_allow_webpages 0` on servers where you don't want arbitrary pages or shared input. Arbitrary webpages are less predictable and expand the external-content attack surface, so restrict request permissions if that matters for your server.
++
++Keyboard input only reaches a page that can take keyboard focus, which the screen cursor does not currently provide, so shared typing works only where the page receives keys by other means.
+ 
+ ## Client ConVars
+ 
+diff --git a/docs/installation.md b/docs/installation.md
+index 2a79eea..7dce291 100644
+--- a/docs/installation.md
++++ b/docs/installation.md
+@@ -48,7 +48,7 @@ Workshop releases may lag behind the repository. Use a source checkout when test
+ - **No Media Player category:** confirm the addon is mounted and check the server/client console for Lua errors.
+ - **Black screen or codec error:** try the x86-64 branch and GMod CEF Codec Fix; the provider may use a codec unsupported by the installed CEF build.
+ - **SoundCloud does not load:** check the embedded browser version and the GModPatchTool requirement.
+-- **URL rejected:** check [Video services](video-services.md); unsupported URLs require `mediaplayer_allow_webpages 1`, which should be enabled cautiously.
++- **URL rejected:** check [Video services](video-services.md); unsupported URLs fall back to a webpage, which needs `mediaplayer_allow_webpages 1` on the server and `mediaplayer_show_webpages 1` for each player who wants to see it.
+ - **Spatial audio is silent:** check the server hear radius, client 3D-audio setting, proximity distances, and whether the listener is within range.
+ 
+ ## Related
+diff --git a/docs/usage.md b/docs/usage.md
+index f57aedf..ac8fb8b 100644
+--- a/docs/usage.md
++++ b/docs/usage.md
+@@ -28,7 +28,7 @@ The spawnable configurations and their screen transforms are defined in `lua/aut
+ 3. Paste a supported URL and submit it.
+ 4. The server matches the URL to a registered service, resolves metadata, checks permissions/whitelists, and queues the media.
+ 
+-A URL must match a built-in service unless the server has enabled `mediaplayer_allow_webpages`. See [Video services](video-services.md).
++A URL must match a built-in service unless the server allows webpages (`mediaplayer_allow_webpages`, on by default). Webpages stay hidden for you until you turn on **Show webpages** in the sidebar settings. See [Video services](video-services.md).
+ 
+ ## Media request lifecycle
+ 
+diff --git a/docs/video-services.md b/docs/video-services.md
+index 8904da5..1738281 100644
+--- a/docs/video-services.md
++++ b/docs/video-services.md
+@@ -23,7 +23,7 @@ The service loader is defined in `lua/mediaplayer/sh_services.lua`. It registers
+ | Direct media | `dm5` | Direct video, image, HLS (`.m3u8`), and DASH (`.mpd`) URLs |
+ | Audio file | `af` | Direct `.mp3`, `.wav`, and `.ogg` URLs |
+ | SHOUTcast Radio | `scr` | SHOUTcast station URLs, `.pls`, and supported `.m3u` playlists |
+-| Generic webpage | `www` | Arbitrary webpages, only when explicitly enabled |
++| Generic webpage | `www` | Arbitrary webpages; the server allows them by default and each player opts in to seeing them |
+ 
+ The `browser` and `res` services are abstract base classes used by concrete providers; they are not standalone providers users should select.
+ 
+@@ -47,19 +47,17 @@ The whitelist also contains legacy IDs `tt` and `h5v`, but no services with thos
+   - With `mediaplayer_subtitle_styling 1` (the default), ASS tracks are drawn by the [JASSUB](https://github.com/ThaUnknown/jassub) renderer (libass) with the styles, positions and effects of the file and the fonts it carries, which are downloaded in the background into `data/mediaplayer/subtitles/` as temporary `.dat` files. Plain text is shown until the renderer is ready, and whenever it cannot be used: no embedded fonts, no internet access to the pinned renderer version on `cdn.jsdelivr.net`, or a browser without WebAssembly support. SRT tracks are always shown as plain text.
+   - Switching the audio track is listed in the menu but not supported yet.
+   - Set `mediaplayer_debug 1` to log what the subtitle code is doing, including messages from the player page.
+-- **Generic webpages:** arbitrary webpage playback is disabled by default and should be treated as a security-sensitive server option.
++- **Generic webpages:** arbitrary webpages are allowed by default on the server, but hidden for each player until they turn on `mediaplayer_show_webpages`. Loading a page exposes the player's IP address to that site, and viewers share control of the page.
+ 
+ Provider behavior can change independently of the addon. A matching URL only means the addon recognizes the URL format; it does not guarantee that the provider is reachable, the content is public, or the installed CEF build supports its codecs.
+ 
+-## Enabling generic webpages
++## Generic webpages
+ 
+-Set the server ConVar:
++On the server, `mediaplayer_allow_webpages` (default `1`) lets otherwise-unmatched URLs fall back to the generic webpage service. Set it to `0` to turn webpages and shared page input off for the whole server.
+ 
+-```text
+-mediaplayer_allow_webpages 1
+-```
++Each player chooses whether to see them with the client setting `mediaplayer_show_webpages` (default `0`), found in the sidebar settings under **Webpages**. Enabling it asks the player to confirm that the site will see their IP address and that input on the page is shared. Players who haven't enabled it see a "Webpage hidden" notice and nothing is loaded for them.
+ 
+-This allows otherwise-unmatched URLs to fall back to the generic webpage service. Keep it disabled on public servers unless you deliberately accept the additional risk and restrict who can submit requests.
++While a webpage plays, every viewer can control it. Cursor movement (shown as a labelled dot), clicks, right clicks, scrolling, keypresses, typed text and navigation are relayed through the server to the other viewers. Clicks and typed text are matched to page elements by a CSS selector, so pages that render differently for each viewer can drift apart; navigation re-syncs everyone. Content inside cross-origin iframes can't be reached and isn't shared.
+ 
+ ## Adding a provider
+ 
+diff --git a/lua/mediaplayer/cl_init.lua b/lua/mediaplayer/cl_init.lua
+index 7bf011d..6d788d5 100644
+--- a/lua/mediaplayer/cl_init.lua
++++ b/lua/mediaplayer/cl_init.lua
+@@ -14,6 +14,7 @@ include "cl_chromeerror.lua"
+ include "cl_requests.lua"
+ include "cl_idlescreen.lua"
+ include "cl_screen.lua"
++include "cl_websync.lua"
+ include "cl_subtitles.lua"
+ 
+ function MediaPlayer.Volume( volume )
+diff --git a/lua/mediaplayer/cl_websync.lua b/lua/mediaplayer/cl_websync.lua
+new file mode 100644
+index 0000000..18d196e
+--- /dev/null
++++ b/lua/mediaplayer/cl_websync.lua
+@@ -0,0 +1,368 @@
++--[[---------------------------------------------------------
++	Webpage input sync: client
++
++	A script injected into the webpage reports this player's real mouse,
++	scroll, keyboard and input activity by logging to the console, and
++	replays the activity of other viewers on this player's copy of the page.
++	Only real (trusted) browser events are reported, so replayed events never
++	echo back.
++
++	Events are only ever handed to the page as JSON data for a fixed script
++	to interpret; nothing from the network is run as code.
++-----------------------------------------------------------]]
++
++local WS = MediaPlayer.WebSync
++
++local CONSOLE_PREFIX = "MPSYNC:"
++
++local CAPTURE_JS = [=[
++(function () {
++	if (window.__mpSync) return;
++
++	var MAX = 1023;
++	var SCROLL_MAX = 65535;
++	var quietUntil = 0;
++	var lastMove = 0;
++	var scrollTimer = null;
++	var cursors = {};
++
++	function send(o) {
++		try { console.log('MPSYNC:' + JSON.stringify(o)); } catch (e) {}
++	}
++
++	function cssEscape(s) {
++		if (window.CSS && CSS.escape) return CSS.escape(s);
++		return String(s).replace(/[^a-zA-Z0-9_-]/g, '\\$&');
++	}
++
++	function selectorFor(el) {
++		if (el && el.nodeType !== 1) el = el.parentElement;
++		var parts = [];
++		while (el && el.nodeType === 1 && parts.length < 14) {
++			var tag = el.tagName.toLowerCase();
++			if (el.id) {
++				var q = '#' + cssEscape(el.id);
++				try {
++					if (document.querySelectorAll(q).length === 1) { parts.unshift(q); break; }
++				} catch (e) {}
++			}
++			if (tag === 'html') { parts.unshift('html'); break; }
++			var n = 1, s = el;
++			while ((s = s.previousElementSibling)) {
++				if (s.tagName === el.tagName) n++;
++			}
++			parts.unshift(tag + ':nth-of-type(' + n + ')');
++			el = el.parentElement;
++		}
++		var sel = parts.join('>');
++		return sel.length <= 300 ? sel : '';
++	}
++
++	function find(sel) {
++		if (!sel) return null;
++		try { return document.querySelector(sel); } catch (e) { return null; }
++	}
++
++	function fx(x) { return Math.max(0, Math.min(MAX, Math.round(x / Math.max(1, window.innerWidth) * MAX))); }
++	function fy(y) { return Math.max(0, Math.min(MAX, Math.round(y / Math.max(1, window.innerHeight) * MAX))); }
++
++	function scrollExtent() {
++		var d = document.documentElement;
++		return {
++			x: Math.max(0, d.scrollWidth - window.innerWidth),
++			y: Math.max(0, d.scrollHeight - window.innerHeight)
++		};
++	}
++
++	/* ---- Report this player's activity ---- */
++
++	var opts = { capture: true, passive: true };
++
++	document.addEventListener('mousemove', function (e) {
++		if (!e.isTrusted) return;
++		var now = Date.now();
++		if (now - lastMove < 80) return;
++		lastMove = now;
++		send({ t: 'move', x: fx(e.clientX), y: fy(e.clientY) });
++	}, opts);
++
++	document.addEventListener('click', function (e) {
++		if (!e.isTrusted) return;
++		send({ t: 'click', x: fx(e.clientX), y: fy(e.clientY), b: 0, sel: selectorFor(e.target) });
++	}, opts);
++
++	document.addEventListener('contextmenu', function (e) {
++		if (!e.isTrusted) return;
++		send({ t: 'click', x: fx(e.clientX), y: fy(e.clientY), b: 2, sel: selectorFor(e.target) });
++	}, opts);
++
++	window.addEventListener('scroll', function () {
++		if (Date.now() < quietUntil || scrollTimer) return;
++		scrollTimer = setTimeout(function () {
++			scrollTimer = null;
++			if (Date.now() < quietUntil) return;
++			var ext = scrollExtent();
++			send({
++				t: 'scroll',
++				x: ext.x ? Math.round(Math.min(1, window.scrollX / ext.x) * SCROLL_MAX) : 0,
++				y: ext.y ? Math.round(Math.min(1, window.scrollY / ext.y) * SCROLL_MAX) : 0
++			});
++		}, 100);
++	}, { passive: true });
++
++	function keyReporter(down) {
++		return function (e) {
++			if (!e.isTrusted) return;
++			send({
++				t: 'key',
++				d: down,
++				k: String(e.key).slice(0, 32),
++				c: String(e.code || '').slice(0, 32),
++				m: (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0) | (e.metaKey ? 8 : 0)
++			});
++		};
++	}
++	document.addEventListener('keydown', keyReporter(true), opts);
++	document.addEventListener('keyup', keyReporter(false), opts);
++
++	document.addEventListener('input', function (e) {
++		if (!e.isTrusted) return;
++		var el = e.target;
++		if (!el || !el.tagName) return;
++		var tag = el.tagName;
++		if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
++		var type = String(el.type || '').toLowerCase();
++		if (type === 'checkbox' || type === 'radio' || type === 'file' ||
++			type === 'button' || type === 'submit') return;
++		send({ t: 'input', sel: selectorFor(el), v: String(el.value).slice(0, 1024) });
++	}, opts);
++
++	/* ---- Replay other viewers' activity ---- */
++
++	function showCursor(who, px, py) {
++		var key = who || '?';
++		var c = cursors[key];
++
++		if (!c) {
++			var hue = 0;
++			for (var i = 0; i < key.length; i++) hue = (hue * 31 + key.charCodeAt(i)) % 360;
++
++			var el = document.createElement('div');
++			el.style.cssText = 'position:fixed;left:0;top:0;z-index:2147483647;' +
++				'pointer-events:none;transition:transform 80ms linear;display:none;';
++
++			var dot = document.createElement('div');
++			dot.style.cssText = 'width:10px;height:10px;margin:-5px 0 0 -5px;border-radius:50%;' +
++				'border:1px solid #fff;background:hsl(' + hue + ',80%,55%);';
++			el.appendChild(dot);
++
++			var label = document.createElement('div');
++			label.textContent = key;
++			label.style.cssText = 'position:absolute;left:8px;top:4px;padding:1px 4px;' +
++				'border-radius:3px;font:11px sans-serif;color:#fff;white-space:nowrap;' +
++				'background:rgba(0,0,0,.7);';
++			el.appendChild(label);
++
++			c = cursors[key] = { el: el, timer: null };
++		}
++
++		if (!c.el.parentNode) (document.body || document.documentElement).appendChild(c.el);
++
++		c.el.style.transform = 'translate(' + px + 'px,' + py + 'px)';
++		c.el.style.display = 'block';
++		clearTimeout(c.timer);
++		c.timer = setTimeout(function () { c.el.style.display = 'none'; }, 3000);
++	}
++
++	function replayClick(ev, px, py) {
++		var el = find(ev.sel) || document.elementFromPoint(px, py);
++		if (!el) return;
++
++		if (ev.b === 2) {
++			el.dispatchEvent(new MouseEvent('contextmenu', {
++				bubbles: true, cancelable: true, view: window,
++				clientX: px, clientY: py, button: 2
++			}));
++			return;
++		}
++
++		if (typeof el.focus === 'function') { try { el.focus(); } catch (e) {} }
++
++		if (typeof el.click === 'function') {
++			el.click();
++		} else {
++			el.dispatchEvent(new MouseEvent('click', {
++				bubbles: true, cancelable: true, view: window, clientX: px, clientY: py
++			}));
++		}
++	}
++
++	function replayInput(ev) {
++		var el = find(ev.sel);
++		if (!el || !('value' in el)) return;
++
++		var desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
++		if (desc && desc.set) desc.set.call(el, ev.v); else el.value = ev.v;
++
++		el.dispatchEvent(new Event('input', { bubbles: true }));
++	}
++
++	function replayKey(ev) {
++		var target = document.activeElement || document.body;
++		target.dispatchEvent(new KeyboardEvent(ev.d ? 'keydown' : 'keyup', {
++			key: ev.k, code: ev.c, bubbles: true, cancelable: true,
++			shiftKey: !!(ev.m & 1), ctrlKey: !!(ev.m & 2),
++			altKey: !!(ev.m & 4), metaKey: !!(ev.m & 8)
++		}));
++	}
++
++	window.__mpSync = {
++		apply: function (ev) {
++			try {
++				var px = ev.x / MAX * window.innerWidth;
++				var py = ev.y / MAX * window.innerHeight;
++
++				if (ev.t === 'move') {
++					showCursor(ev.who, px, py);
++				} else if (ev.t === 'click') {
++					showCursor(ev.who, px, py);
++					replayClick(ev, px, py);
++				} else if (ev.t === 'scroll') {
++					var ext = scrollExtent();
++					quietUntil = Date.now() + 600;
++					window.scrollTo(ev.x / SCROLL_MAX * ext.x, ev.y / SCROLL_MAX * ext.y);
++				} else if (ev.t === 'key') {
++					replayKey(ev);
++				} else if (ev.t === 'input') {
++					replayInput(ev);
++				}
++			} catch (e) {}
++		}
++	};
++}());
++]=]
++
++--[[---------------------------------------------------------
++	Finding the media player a webpage belongs to
++-----------------------------------------------------------]]
++
++function WS.FindPlayer( media )
++	for _, mp in pairs( MediaPlayer.List ) do
++		if IsValid( mp ) and mp:GetMedia() == media then
++			return mp
++		end
++	end
++end
++
++--[[---------------------------------------------------------
++	Sending
++-----------------------------------------------------------]]
++
++local function sendEvent( service, ev )
++	if not MediaPlayer.Cvars.AllowWebpages:GetBool() then return end
++
++	local mp = WS.FindPlayer( service )
++	if not mp then return end
++
++	net.Start( WS.NET )
++		net.WriteString( mp:GetId() )
++		WS.Write( ev )
++	net.SendToServer()
++end
++
++--- Starts sharing input for a webpage service. Call before the page is opened.
++function WS.Attach( service, browser )
++	-- The first load is every viewer's own; only later changes are shared
++	service._webLastUrl = service.url
++
++	browser.OnWebDocumentReady = function( panel )
++		panel:RunJavascript( CAPTURE_JS )
++	end
++
++	browser.OnWebSync = function( _, json )
++		local ev = WS.Sanitize( util.JSONToTable( json ) )
++		if ev then
++			sendEvent( service, ev )
++		end
++	end
++
++	browser.OnWebURLChanged = function( _, new )
++		if not isstring( new ) or new == service._webLastUrl then return end
++		service._webLastUrl = new
++
++		local ev = WS.Sanitize( { t = "nav", url = new } )
++		if ev then
++			sendEvent( service, ev )
++		end
++	end
++end
++
++--- Stops sharing input. Call before the browser is released to the pool.
++function WS.Detach( browser )
++	browser.OnWebDocumentReady = nil
++	browser.OnWebSync = nil
++	browser.OnWebURLChanged = nil
++end
++
++--[[---------------------------------------------------------
++	Receiving
++-----------------------------------------------------------]]
++
++-- JSON is valid script apart from these two characters on older engines
++local function jsLiteral( tbl )
++	local json = util.TableToJSON( tbl )
++	if not json then return nil end
++
++	json = json:gsub( "\226\128\168", "\\u2028" ):gsub( "\226\128\169", "\\u2029" )
++	return json
++end
++
++net.Receive( WS.NET, function()
++	local mp = MediaPlayer.GetById( net.ReadString() )
++	local ev, who = WS.Read( true )
++
++	if not ( ev and IsValid( mp ) ) then return end
++	if not MediaPlayer.Cvars.AllowWebpages:GetBool() then return end
++
++	local media = mp:GetMedia()
++	if not WS.IsWebpage( media ) then return end
++
++	local browser = media.Browser
++	if not IsValid( browser ) then return end
++
++	if ev.t == "nav" then
++		if browser:GetURL() ~= ev.url then
++			media._webLastUrl = ev.url
++			browser:OpenURL( ev.url )
++		end
++		return
++	end
++
++	ev.who = who
++
++	local json = jsLiteral( ev )
++	if json then
++		browser:RunJavascript( "window.__mpSync && window.__mpSync.apply(" .. json .. ");" )
++	end
++end )
++
++--[[---------------------------------------------------------
++	Showing or hiding webpages when the setting changes
++-----------------------------------------------------------]]
++
++cvars.AddChangeCallback( "mediaplayer_show_webpages", function( _, _, new )
++	local show = tobool( new )
++
++	for _, mp in pairs( MediaPlayer.List ) do
++		local media = IsValid( mp ) and mp:GetMedia()
++
++		if WS.IsWebpage( media ) then
++			if show and media._webHidden then
++				media:Play()
++			elseif not show and not media._webHidden then
++				media:Stop()
++				media._webHidden = true
++			end
++		end
++	end
++end, "MediaPlayer.WebSync" )
+diff --git a/lua/mediaplayer/controls/dmediaplayerhtml.lua b/lua/mediaplayer/controls/dmediaplayerhtml.lua
+index b7ce68e..79f04e3 100644
+--- a/lua/mediaplayer/controls/dmediaplayerhtml.lua
++++ b/lua/mediaplayer/controls/dmediaplayerhtml.lua
+@@ -78,6 +78,11 @@ function PANEL:OnDocumentReady( url )
+ 		self:SetURL( url )
+ 	end )
+ 
++	-- Lets a service (e.g. webpage input sync) prepare each new document
++	if self.OnWebDocumentReady then
++		self:OnWebDocumentReady( url )
++	end
++
+ end
+ 
+ function PANEL:Think()
+@@ -165,6 +170,10 @@ function PANEL:OnURLChanged( new, old )
+ 	if isstring(new) and not new:StartWith("chrome-error://") then
+ 		self._lastGoodURL = new
+ 	end
++
++	if self.OnWebURLChanged then
++		self:OnWebURLChanged( new, old )
++	end
+ end
+ 
+ 
+@@ -302,6 +311,14 @@ function PANEL:ConsoleMessage( ... )
+ 	local args = {...}
+ 	local msg = args[1]
+ 
++	-- Input activity reported by the webpage sync script; never printed
++	if isstring( msg ) and msg:StartWith( "MPSYNC:" ) then
++		if self.OnWebSync then
++			self:OnWebSync( msg:sub( 8 ) )
++		end
++		return
++	end
++
+ 	-- Three arguments are passed in if an error occured
+ 	if #args == 3 and filterLevel > FILTER_ALL then
+ 
+diff --git a/lua/mediaplayer/i18n/lang/en.lua b/lua/mediaplayer/i18n/lang/en.lua
+index 8152e71..d417517 100644
+--- a/lua/mediaplayer/i18n/lang/en.lua
++++ b/lua/mediaplayer/i18n/lang/en.lua
+@@ -80,6 +80,11 @@ MediaPlayer.i18n.RegisterLanguage("en", {
+ 	["mp.settings.show_radius"]         = "Show Proximity Radius",
+ 	["mp.settings.controls"]            = "Controls",
+ 	["mp.settings.screen_cursor"]       = "Screen cursor",
++	["mp.settings.webpages"]            = "Webpages",
++	["mp.settings.show_webpages"]       = "Show webpages",
++	["mp.settings.show_webpages_warning"] = "Webpages load directly in your game, like opening a site in a browser. The site can see your IP address.\n\nOn a webpage, everyone watching shares control: mouse movement, clicks, scrolling and anything typed (including passwords) are sent to the other viewers, and theirs to you.\n\nOnly turn this on if you accept that.",
++	["mp.settings.show_webpages_enable"] = "I understand, show webpages",
++	["mp.settings.show_webpages_cancel"] = "Cancel",
+ 	["mp.settings.subtitles"]           = "Subtitles",
+ 	["mp.settings.subtitles_off"]       = "Off",
+ 	["mp.settings.subtitle_language"]   = "Preferred language",
+@@ -138,4 +143,7 @@ MediaPlayer.i18n.RegisterLanguage("en", {
+ 	["mp.error.browser_limit_title"]    = "Browser Limit Reached",
+ 	["mp.error.browser_limit_detail"]   = "All browser slots are in use (%d/%d active).",
+ 	["mp.error.browser_limit_note"]     = "Waiting for a slot to free up. This is not a bug.",
++	["mp.webpage.hidden_title"]         = "Webpage hidden",
++	["mp.webpage.hidden_detail"]        = "Turn on \"Show webpages\" in the Media Player settings to view it.",
++	["mp.webpage.hidden_note"]          = "Loading a webpage reveals your IP address to that site.",
+ })
+\ No newline at end of file
+diff --git a/lua/mediaplayer/init.lua b/lua/mediaplayer/init.lua
+index bebb150..34105c6 100644
+--- a/lua/mediaplayer/init.lua
++++ b/lua/mediaplayer/init.lua
+@@ -24,8 +24,11 @@ AddCSLuaFile "sh_history.lua"
+ AddCSLuaFile "sh_metadata.lua"
+ AddCSLuaFile "sh_cvars.lua"
+ AddCSLuaFile "sh_cami.lua"
++AddCSLuaFile "sh_websync.lua"
++AddCSLuaFile "cl_websync.lua"
+ AddCSLuaFile "i18n/sh_i18n.lua"
+ 
+ include "shared.lua"
+ include "sv_playlist.lua"
+-include "sv_requests.lua"
+\ No newline at end of file
++include "sv_requests.lua"
++include "sv_websync.lua"
+\ No newline at end of file
+diff --git a/lua/mediaplayer/services/webpage.lua b/lua/mediaplayer/services/webpage.lua
+index d4cd2b8..52c16f4 100644
+--- a/lua/mediaplayer/services/webpage.lua
++++ b/lua/mediaplayer/services/webpage.lua
+@@ -7,8 +7,46 @@ SERVICE.Abstract = true -- This service must be handled as a special case.
+ 
+ if CLIENT then
+ 
++	local WS = MediaPlayer.WebSync
++
++	local SetDrawColor = surface.SetDrawColor
++	local DrawRect = surface.DrawRect
++	local SetFont = surface.SetFont
++	local GetTextSize = surface.GetTextSize
++	local SimpleText = draw.SimpleText
++
++	local colorWarn = Color( 255, 200, 60, 255 )
++	local colorText = Color( 200, 200, 200, 255 )
++
++	-- Webpages are only loaded for players who turned on "Show webpages", since
++	-- loading one reveals the player's IP address to the site.
++	function SERVICE:Play()
++		if not MediaPlayer.Cvars.ShowWebpages:GetBool() then
++			-- Skip the browser; Draw explains why the screen is empty
++			self._webHidden = true
++			baseclass.Get( "mp_service_base" ).Play( self )
++			return
++		end
++
++		self._webHidden = nil
++		BaseClass.Play( self )
++	end
++
++	function SERVICE:Stop()
++		if IsValid( self.Browser ) then
++			WS.Detach( self.Browser )
++		end
++
++		BaseClass.Stop( self )
++	end
++
+ 	function SERVICE:OnBrowserReady( browser )
+ 		BaseClass.OnBrowserReady( self, browser )
++
++		-- Share this player's input on the page with the other viewers (and
++		-- show theirs), before the page loads so the first document is covered
++		WS.Attach( self, browser )
++
+ 		browser:OpenURL( self.url )
+ 	end
+ 
+@@ -16,6 +54,50 @@ if CLIENT then
+ 		return IsValid( self.Browser )
+ 	end
+ 
++	function SERVICE:Draw( w, h )
++		if not self._webHidden then
++			return BaseClass.Draw( self, w, h )
++		end
++
++		SetDrawColor( 0, 0, 0, 255 )
++		DrawRect( 0, 0, w, h )
++
++		local lines = {
++			{ MediaPlayer.L( "mp.webpage.hidden_title" ), colorWarn },
++			{ MediaPlayer.L( "mp.webpage.hidden_detail" ), colorText },
++			{ MediaPlayer.L( "mp.webpage.hidden_note" ), colorText },
++		}
++
++		SetFont( "MediaTitle" )
++
++		local gap = 20
++		local maxWidth, totalHeight = 0, gap * ( #lines - 1 )
++		for _, line in ipairs( lines ) do
++			local tw, th = GetTextSize( line[1] )
++			line.w, line.h = tw, th
++			maxWidth = math.max( maxWidth, tw )
++			totalHeight = totalHeight + th
++		end
++
++		-- Shrink everything uniformly so the widest line fits the screen
++		local scale = math.min( 1, ( w - 80 ) / maxWidth, ( h - 80 ) / totalHeight )
++
++		local mat = Matrix()
++		mat:Translate( Vector( w / 2, h / 2, 0 ) )
++		mat:Scale( Vector( scale, scale, 1 ) )
++		mat:Translate( Vector( -w / 2, -h / 2, 0 ) )
++		cam.PushModelMatrix( mat, true )
++
++		local y = h / 2 - totalHeight / 2
++		for _, line in ipairs( lines ) do
++			SimpleText( line[1], "MediaTitle", w / 2, y + line.h / 2, line[2],
++				TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER )
++			y = y + line.h + gap
++		end
++
++		cam.PopModelMatrix()
++	end
++
+ else
+ 
+ 	function SERVICE:Match( url )
+diff --git a/lua/mediaplayer/sh_cvars.lua b/lua/mediaplayer/sh_cvars.lua
+index 72ab26d..cae19cc 100644
+--- a/lua/mediaplayer/sh_cvars.lua
++++ b/lua/mediaplayer/sh_cvars.lua
+@@ -6,12 +6,16 @@ cvars.AddChangeCallback( "mediaplayer_debug", function(name, old, new)
+ 	MediaPlayer.DEBUG = tobool(new)
+ end)
+ 
+-MediaPlayer.Cvars.AllowWebpages = CreateConVar( "mediaplayer_allow_webpages", 0, {
++-- Server-side switch for webpages. Each client still has to opt in with
++-- mediaplayer_show_webpages before a webpage is loaded in their game. This
++-- also controls whether players' mouse, scroll and keyboard input on a
++-- webpage is relayed to the other viewers.
++MediaPlayer.Cvars.AllowWebpages = CreateConVar( "mediaplayer_allow_webpages", 1, {
+ 	FCVAR_ARCHIVE,
+ 	FCVAR_NOTIFY,
+ 	FCVAR_REPLICATED,
+ 	FCVAR_SERVER_CAN_EXECUTE
+-}, "Allows any webpage to be requested." )
++}, "Allows any webpage to be requested, and shares viewers' input on webpages." )
+ 
+ MediaPlayer.Cvars.QueueLimit = CreateConVar( "mediaplayer_queue_limit", 64, {
+ 	FCVAR_REPLICATED,
+@@ -29,6 +33,9 @@ if CLIENT then
+ 	MediaPlayer.Cvars.ProximityMin = CreateClientConVar( "mediaplayer_proximity_min", "100", true, false )
+ 	MediaPlayer.Cvars.ProximityMax = CreateClientConVar( "mediaplayer_proximity_max", "1000", true, false )
+ 
++	-- Webpages are hidden until the player opts in; loading one reveals their IP address to that site.
++	MediaPlayer.Cvars.ShowWebpages = CreateClientConVar( "mediaplayer_show_webpages", "0", true, false )
++
+ 	-- Hold the context menu key over a screen to get a cursor on the page, with left/right click and scroll.
+ 	MediaPlayer.Cvars.ScreenCursor = CreateClientConVar( "mediaplayer_screen_cursor", "0", true, false )
+ 
+diff --git a/lua/mediaplayer/sh_websync.lua b/lua/mediaplayer/sh_websync.lua
+new file mode 100644
+index 0000000..95d9223
+--- /dev/null
++++ b/lua/mediaplayer/sh_websync.lua
+@@ -0,0 +1,213 @@
++--[[---------------------------------------------------------
++	Webpage input sync
++
++	While a webpage is playing on a media player, mouse movement, clicks,
++	scrolling, keypresses, text input and navigation from any viewer are
++	relayed through the server to every other viewer of that page.
++
++	This file holds the event format shared by the client and the server.
++	An event is a table with a `t` field naming its type:
++
++		move   x, y            Cursor position, 0-1023 across the page
++		click  x, y, b, sel    Button (0 left, 2 right) and target element
++		scroll x, y            Scroll position, 0-65535 of the scrollable area
++		key    d, k, c, m      Pressed state, key, code and modifier bits
++		input  sel, v          Value typed into a form field
++		nav    url             The page navigated somewhere else
++
++	`sel` is a CSS selector for the target element and is only ever passed to
++	querySelector on the receiving page, never run as code.
++-----------------------------------------------------------]]
++
++MediaPlayer.WebSync = MediaPlayer.WebSync or {}
++local WS = MediaPlayer.WebSync
++
++WS.NET = "MEDIAPLAYER.WebSync"
++
++-- Largest message the server accepts from a client, in bits
++WS.MAX_BITS = 8 * 4096
++
++local TYPE_BITS = 3
++
++local TYPE_IDS = {
++	move   = 0,
++	click  = 1,
++	scroll = 2,
++	key    = 3,
++	input  = 4,
++	nav    = 5,
++}
++
++local TYPE_NAMES = {}
++for name, id in pairs( TYPE_IDS ) do
++	TYPE_NAMES[id] = name
++end
++
++local MAX_SELECTOR = 300
++local MAX_VALUE = 1024
++local MAX_KEY = 32
++local MAX_URL = 2048
++local MAX_NAME = 32
++
++-- Control characters other than tab, newline and carriage return
++local CONTROL_CHARS = "[%z\1-\8\11\12\14-\31\127]"
++
++local function cleanString( str, max )
++	if not isstring( str ) then return nil end
++	if #str > max then return nil end
++
++	return ( string.gsub( str, CONTROL_CHARS, "" ) )
++end
++
++local function clampInt( value, max )
++	value = tonumber( value )
++	if not value or value ~= value then return nil end
++
++	return math.Clamp( math.floor( value + 0.5 ), 0, max )
++end
++
++local function isWebUrl( url )
++	return url:match( "^https?://[^%s]+$" ) ~= nil
++end
++
++--- Validates an event from untrusted input (the page's script) and returns a
++-- clean copy, or nil if it isn't a valid event.
++function WS.Sanitize( raw )
++	if not istable( raw ) then return nil end
++
++	local t = raw.t
++
++	if t == "move" then
++		local x, y = clampInt( raw.x, 1023 ), clampInt( raw.y, 1023 )
++		if x and y then
++			return { t = t, x = x, y = y }
++		end
++
++	elseif t == "click" then
++		local x, y = clampInt( raw.x, 1023 ), clampInt( raw.y, 1023 )
++		local b = clampInt( raw.b, 3 )
++		local sel = cleanString( raw.sel or "", MAX_SELECTOR )
++		if x and y and b and sel then
++			return { t = t, x = x, y = y, b = b, sel = sel }
++		end
++
++	elseif t == "scroll" then
++		local x, y = clampInt( raw.x, 65535 ), clampInt( raw.y, 65535 )
++		if x and y then
++			return { t = t, x = x, y = y }
++		end
++
++	elseif t == "key" then
++		local k = cleanString( raw.k, MAX_KEY )
++		local c = cleanString( raw.c or "", MAX_KEY )
++		local m = clampInt( raw.m or 0, 15 )
++		if k and c and m then
++			return { t = t, d = ( raw.d == true or raw.d == 1 ), k = k, c = c, m = m }
++		end
++
++	elseif t == "input" then
++		local sel = cleanString( raw.sel, MAX_SELECTOR )
++		local v = cleanString( raw.v, MAX_VALUE )
++		if sel and v then
++			return { t = t, sel = sel, v = v }
++		end
++
++	elseif t == "nav" then
++		local url = cleanString( raw.url, MAX_URL )
++		if url and isWebUrl( url ) then
++			return { t = t, url = url }
++		end
++	end
++
++	return nil
++end
++
++--- Writes an event to the current net message.
++-- @param ev  A table returned by WS.Sanitize.
++-- @param who Name of the player the event came from; added when the server
++--            relays an event so viewers can label the cursor.
++function WS.Write( ev, who )
++	net.WriteUInt( TYPE_IDS[ev.t], TYPE_BITS )
++
++	if who ~= nil then
++		net.WriteString( who )
++	end
++
++	if ev.t == "move" then
++		net.WriteUInt( ev.x, 10 )
++		net.WriteUInt( ev.y, 10 )
++
++	elseif ev.t == "click" then
++		net.WriteUInt( ev.x, 10 )
++		net.WriteUInt( ev.y, 10 )
++		net.WriteUInt( ev.b, 2 )
++		net.WriteString( ev.sel )
++
++	elseif ev.t == "scroll" then
++		net.WriteUInt( ev.x, 16 )
++		net.WriteUInt( ev.y, 16 )
++
++	elseif ev.t == "key" then
++		net.WriteBool( ev.d )
++		net.WriteString( ev.k )
++		net.WriteString( ev.c )
++		net.WriteUInt( ev.m, 4 )
++
++	elseif ev.t == "input" then
++		net.WriteString( ev.sel )
++		net.WriteString( ev.v )
++
++	elseif ev.t == "nav" then
++		net.WriteString( ev.url )
++	end
++end
++
++--- Reads an event from the current net message and validates it.
++-- @param hasWho Whether the sender's name precedes the event fields.
++-- @return table|nil, string|nil Event and sender name; nil if invalid.
++function WS.Read( hasWho )
++	local t = TYPE_NAMES[net.ReadUInt( TYPE_BITS )]
++	if not t then return nil end
++
++	local who
++	if hasWho then
++		who = cleanString( net.ReadString(), MAX_NAME ) or ""
++	end
++
++	local raw = { t = t }
++
++	if t == "move" then
++		raw.x = net.ReadUInt( 10 )
++		raw.y = net.ReadUInt( 10 )
++
++	elseif t == "click" then
++		raw.x = net.ReadUInt( 10 )
++		raw.y = net.ReadUInt( 10 )
++		raw.b = net.ReadUInt( 2 )
++		raw.sel = net.ReadString()
++
++	elseif t == "scroll" then
++		raw.x = net.ReadUInt( 16 )
++		raw.y = net.ReadUInt( 16 )
++
++	elseif t == "key" then
++		raw.d = net.ReadBool()
++		raw.k = net.ReadString()
++		raw.c = net.ReadString()
++		raw.m = net.ReadUInt( 4 )
++
++	elseif t == "input" then
++		raw.sel = net.ReadString()
++		raw.v = net.ReadString()
++
++	elseif t == "nav" then
++		raw.url = net.ReadString()
++	end
++
++	return WS.Sanitize( raw ), who
++end
++
++--- Whether the media is a webpage, the only kind of media that shares input.
++function WS.IsWebpage( media )
++	return media ~= nil and media.Id == "www"
++end
+diff --git a/lua/mediaplayer/shared.lua b/lua/mediaplayer/shared.lua
+index 9087e95..5981589 100644
+--- a/lua/mediaplayer/shared.lua
++++ b/lua/mediaplayer/shared.lua
+@@ -51,6 +51,7 @@ end
+ 
+ include "sh_events.lua"
+ include "sh_mediaplayer.lua"
++include "sh_websync.lua" -- before services; the webpage service uses it
+ include "sh_services.lua"
+ include "sh_history.lua"
+ include "sh_metadata.lua"
+diff --git a/lua/mediaplayer/sv_websync.lua b/lua/mediaplayer/sv_websync.lua
+new file mode 100644
+index 0000000..fbfe0bf
+--- /dev/null
++++ b/lua/mediaplayer/sv_websync.lua
+@@ -0,0 +1,70 @@
++--[[---------------------------------------------------------
++	Webpage input sync: server relay
++
++	Receives input events from a viewer of a webpage and forwards them to
++	every other viewer of the same media player. Any listener can send;
++	there is no single controller.
++-----------------------------------------------------------]]
++
++local WS = MediaPlayer.WebSync
++
++util.AddNetworkString( WS.NET )
++
++-- Per-player token bucket so one client can't flood the net channel
++local EVENTS_PER_SECOND = 60
++local BURST = 90
++
++local buckets = setmetatable( {}, { __mode = "k" } )
++
++local function takeToken( ply )
++	local now = RealTime()
++	local bucket = buckets[ply]
++
++	if not bucket then
++		bucket = { tokens = BURST, last = now }
++		buckets[ply] = bucket
++	end
++
++	bucket.tokens = math.min( BURST, bucket.tokens + ( now - bucket.last ) * EVENTS_PER_SECOND )
++	bucket.last = now
++
++	if bucket.tokens < 1 then
++		return false
++	end
++
++	bucket.tokens = bucket.tokens - 1
++	return true
++end
++
++net.Receive( WS.NET, function( len, ply )
++	if not IsValid( ply ) then return end
++	if len > WS.MAX_BITS then return end
++	if not MediaPlayer.Cvars.AllowWebpages:GetBool() then return end
++	if not takeToken( ply ) then return end
++
++	local mp = MediaPlayer.GetById( net.ReadString() )
++	if not IsValid( mp ) or not mp:HasListener( ply ) then return end
++
++	if not WS.IsWebpage( mp:GetMedia() ) then return end
++
++	local ev = WS.Read( false )
++	if not ev then return end
++
++	local receivers = {}
++	for _, listener in ipairs( mp:GetListeners() ) do
++		if listener ~= ply and IsValid( listener ) then
++			receivers[#receivers + 1] = listener
++		end
++	end
++
++	if #receivers == 0 then return end
++
++	if MediaPlayer.DEBUG and ev.t ~= "move" then
++		print( "MEDIAPLAYER.WebSync:", mp:GetId(), ply, ev.t )
++	end
++
++	net.Start( WS.NET )
++		net.WriteString( mp:GetId() )
++		WS.Write( ev, ply:Nick():sub( 1, 32 ) )
++	net.Send( receivers )
++end )
+diff --git a/lua/mp_menu/settings.lua b/lua/mp_menu/settings.lua
+index 38c8fb9..e1d4f0d 100644
+--- a/lua/mp_menu/settings.lua
++++ b/lua/mp_menu/settings.lua
+@@ -204,6 +204,97 @@ local function CreateCheckbox(parent, i18nKey, convar)
+ 	return cb
+ end
+ 
++-- The "Show webpages" checkbox. Turning it on reveals the player's IP address to
++-- any site, so instead of setting the convar straight away it opens a warning
++-- inside the panel (a popup would be unclickable while the sidebar is hovered, see
++-- CreateTrackSelect) and only enables it once the player confirms.
++local WARNING_HEIGHT = 190
++
++local function CreateWebpageToggle(parent)
++	local cvar = MediaPlayer.Cvars.ShowWebpages
++	local updating = false
++
++	local cb = CreateCheckbox(parent, "mp.settings.show_webpages", nil)
++
++	local function SetChecked(checked)
++		updating = true
++		cb:SetChecked(checked)
++		updating = false
++	end
++
++	SetChecked(cvar:GetBool())
++
++	local warning = vgui.Create("DPanel", parent)
++	warning:Dock(TOP)
++	warning:DockMargin(0, 5, 0, 0)
++	warning:DockPadding(8, 8, 8, 8)
++	warning:SetTall(WARNING_HEIGHT)
++	warning:SetVisible(false)
++	warning.Paint = function(_, w, h)
++		draw.RoundedBox(4, 0, 0, w, h, Color(70, 48, 0, 255))
++	end
++
++	local buttons = vgui.Create("DPanel", warning)
++	buttons:Dock(BOTTOM)
++	buttons:SetTall(25)
++	buttons.Paint = function() end
++
++	local text = vgui.Create("DLabel", warning)
++	text:Dock(FILL)
++	text:DockMargin(0, 0, 0, 8)
++	text:SetText(L("mp.settings.show_webpages_warning"))
++	text:SetTextColor(Color(255, 225, 160))
++	text:SetWrap(true)
++	text:SetContentAlignment(7)
++
++	local enable = vgui.Create("DButton", buttons)
++	enable:Dock(FILL)
++	enable:SetText(L("mp.settings.show_webpages_enable"))
++	enable.DoClick = function()
++		RunConsoleCommand("mediaplayer_show_webpages", "1")
++		SetChecked(true)
++		warning:SetVisible(false)
++		parent:InvalidateLayout(true)
++	end
++
++	local cancel = vgui.Create("DButton", buttons)
++	cancel:Dock(RIGHT)
++	cancel:DockMargin(5, 0, 0, 0)
++	cancel:SetWide(70)
++	cancel:SetText(L("mp.settings.show_webpages_cancel"))
++	cancel.DoClick = function()
++		warning:SetVisible(false)
++		parent:InvalidateLayout(true)
++	end
++
++	cb.OnChange = function(_, checked)
++		if updating then return end
++
++		if checked then
++			-- Stay off until confirmed
++			SetChecked(false)
++			warning:SetVisible(true)
++		else
++			RunConsoleCommand("mediaplayer_show_webpages", "0")
++			warning:SetVisible(false)
++		end
++
++		parent:InvalidateLayout(true)
++	end
++
++	-- Keep in step with changes made from the console
++	cvars.AddChangeCallback("mediaplayer_show_webpages", function(_, _, new)
++		if IsValid(cb) then
++			SetChecked(tobool(new))
++			if tobool(new) then
++				warning:SetVisible(false)
++			end
++		end
++	end, "MediaPlayer.Settings.ShowWebpages")
++
++	return cb
++end
++
+ local function CreateSlider(parent, i18nKey, convar, min, max, decimals)
+ 	local slider = vgui.Create("DNumSlider", parent)
+ 	slider:SetText(L(i18nKey))
+@@ -470,6 +561,10 @@ function PANEL:BuildContent()
+ 	CreateSectionLabel(scroll, "mp.settings.controls")
+ 	CreateCheckbox(scroll, "mp.settings.screen_cursor", "mediaplayer_screen_cursor")
+ 
++	-- Webpages
++	CreateSectionLabel(scroll, "mp.settings.webpages")
++	CreateWebpageToggle(scroll)
++
+ 	-- Subtitles: the language preference (mediaplayer_cc_lang) and the track of the video that is playing
+ 	CreateSectionLabel(scroll, "mp.settings.subtitles")
+ 

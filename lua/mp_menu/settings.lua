@@ -204,6 +204,97 @@ local function CreateCheckbox(parent, i18nKey, convar)
 	return cb
 end
 
+-- The "Show webpages" checkbox. Turning it on reveals the player's IP address to
+-- any site, so instead of setting the convar straight away it opens a warning
+-- inside the panel (a popup would be unclickable while the sidebar is hovered, see
+-- CreateTrackSelect) and only enables it once the player confirms.
+local WARNING_HEIGHT = 190
+
+local function CreateWebpageToggle(parent)
+	local cvar = MediaPlayer.Cvars.ShowWebpages
+	local updating = false
+
+	local cb = CreateCheckbox(parent, "mp.settings.show_webpages", nil)
+
+	local function SetChecked(checked)
+		updating = true
+		cb:SetChecked(checked)
+		updating = false
+	end
+
+	SetChecked(cvar:GetBool())
+
+	local warning = vgui.Create("DPanel", parent)
+	warning:Dock(TOP)
+	warning:DockMargin(0, 5, 0, 0)
+	warning:DockPadding(8, 8, 8, 8)
+	warning:SetTall(WARNING_HEIGHT)
+	warning:SetVisible(false)
+	warning.Paint = function(_, w, h)
+		draw.RoundedBox(4, 0, 0, w, h, Color(70, 48, 0, 255))
+	end
+
+	local buttons = vgui.Create("DPanel", warning)
+	buttons:Dock(BOTTOM)
+	buttons:SetTall(25)
+	buttons.Paint = function() end
+
+	local text = vgui.Create("DLabel", warning)
+	text:Dock(FILL)
+	text:DockMargin(0, 0, 0, 8)
+	text:SetText(L("mp.settings.show_webpages_warning"))
+	text:SetTextColor(Color(255, 225, 160))
+	text:SetWrap(true)
+	text:SetContentAlignment(7)
+
+	local enable = vgui.Create("DButton", buttons)
+	enable:Dock(FILL)
+	enable:SetText(L("mp.settings.show_webpages_enable"))
+	enable.DoClick = function()
+		RunConsoleCommand("mediaplayer_show_webpages", "1")
+		SetChecked(true)
+		warning:SetVisible(false)
+		parent:InvalidateLayout(true)
+	end
+
+	local cancel = vgui.Create("DButton", buttons)
+	cancel:Dock(RIGHT)
+	cancel:DockMargin(5, 0, 0, 0)
+	cancel:SetWide(70)
+	cancel:SetText(L("mp.settings.show_webpages_cancel"))
+	cancel.DoClick = function()
+		warning:SetVisible(false)
+		parent:InvalidateLayout(true)
+	end
+
+	cb.OnChange = function(_, checked)
+		if updating then return end
+
+		if checked then
+			-- Stay off until confirmed
+			SetChecked(false)
+			warning:SetVisible(true)
+		else
+			RunConsoleCommand("mediaplayer_show_webpages", "0")
+			warning:SetVisible(false)
+		end
+
+		parent:InvalidateLayout(true)
+	end
+
+	-- Keep in step with changes made from the console
+	cvars.AddChangeCallback("mediaplayer_show_webpages", function(_, _, new)
+		if IsValid(cb) then
+			SetChecked(tobool(new))
+			if tobool(new) then
+				warning:SetVisible(false)
+			end
+		end
+	end, "MediaPlayer.Settings.ShowWebpages")
+
+	return cb
+end
+
 local function CreateSlider(parent, i18nKey, convar, min, max, decimals)
 	local slider = vgui.Create("DNumSlider", parent)
 	slider:SetText(L(i18nKey))
@@ -469,6 +560,10 @@ function PANEL:BuildContent()
 	-- Controls
 	CreateSectionLabel(scroll, "mp.settings.controls")
 	CreateCheckbox(scroll, "mp.settings.screen_cursor", "mediaplayer_screen_cursor")
+
+	-- Webpages
+	CreateSectionLabel(scroll, "mp.settings.webpages")
+	CreateWebpageToggle(scroll)
 
 	-- Subtitles: the language preference (mediaplayer_cc_lang) and the track of the video that is playing
 	CreateSectionLabel(scroll, "mp.settings.subtitles")

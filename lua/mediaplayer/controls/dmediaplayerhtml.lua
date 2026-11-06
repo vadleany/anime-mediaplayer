@@ -78,6 +78,11 @@ function PANEL:OnDocumentReady( url )
 		self:SetURL( url )
 	end )
 
+	-- Lets a service (e.g. webpage input sync) prepare each new document
+	if self.OnWebDocumentReady then
+		self:OnWebDocumentReady( url )
+	end
+
 end
 
 function PANEL:Think()
@@ -164,6 +169,10 @@ function PANEL:OnURLChanged( new, old )
 	-- Track the last known good URL for hostname extraction
 	if isstring(new) and not new:StartWith("chrome-error://") then
 		self._lastGoodURL = new
+	end
+
+	if self.OnWebURLChanged then
+		self:OnWebURLChanged( new, old )
 	end
 end
 
@@ -301,6 +310,14 @@ function PANEL:ConsoleMessage( ... )
 
 	local args = {...}
 	local msg = args[1]
+
+	-- Input activity reported by the webpage sync script; never printed
+	if isstring( msg ) and msg:StartWith( "MPSYNC:" ) then
+		if self.OnWebSync then
+			self:OnWebSync( msg:sub( 8 ) )
+		end
+		return
+	end
 
 	-- Three arguments are passed in if an error occured
 	if #args == 3 and filterLevel > FILTER_ALL then

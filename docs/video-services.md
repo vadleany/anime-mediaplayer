@@ -23,7 +23,7 @@ The service loader is defined in `lua/mediaplayer/sh_services.lua`. It registers
 | Direct media | `dm5` | Direct video, image, HLS (`.m3u8`), and DASH (`.mpd`) URLs |
 | Audio file | `af` | Direct `.mp3`, `.wav`, and `.ogg` URLs |
 | SHOUTcast Radio | `scr` | SHOUTcast station URLs, `.pls`, and supported `.m3u` playlists |
-| Generic webpage | `www` | Arbitrary webpages, only when explicitly enabled |
+| Generic webpage | `www` | Arbitrary webpages; the server allows them by default and each player opts in to seeing them |
 
 The `browser` and `res` services are abstract base classes used by concrete providers; they are not standalone providers users should select.
 
@@ -47,19 +47,17 @@ The whitelist also contains legacy IDs `tt` and `h5v`, but no services with thos
   - With `mediaplayer_subtitle_styling 1` (the default), ASS tracks are drawn by the [JASSUB](https://github.com/ThaUnknown/jassub) renderer (libass) with the styles, positions and effects of the file and the fonts it carries, which are downloaded in the background into `data/mediaplayer/subtitles/` as temporary `.dat` files. Plain text is shown until the renderer is ready, and whenever it cannot be used: no embedded fonts, no internet access to the pinned renderer version on `cdn.jsdelivr.net`, or a browser without WebAssembly support. SRT tracks are always shown as plain text.
   - Switching the audio track is listed in the menu but not supported yet.
   - Set `mediaplayer_debug 1` to log what the subtitle code is doing, including messages from the player page.
-- **Generic webpages:** arbitrary webpage playback is disabled by default and should be treated as a security-sensitive server option.
+- **Generic webpages:** arbitrary webpages are allowed by default on the server, but hidden for each player until they turn on `mediaplayer_show_webpages`. Loading a page exposes the player's IP address to that site, and viewers share control of the page.
 
 Provider behavior can change independently of the addon. A matching URL only means the addon recognizes the URL format; it does not guarantee that the provider is reachable, the content is public, or the installed CEF build supports its codecs.
 
-## Enabling generic webpages
+## Generic webpages
 
-Set the server ConVar:
+On the server, `mediaplayer_allow_webpages` (default `1`) lets otherwise-unmatched URLs fall back to the generic webpage service. Set it to `0` to turn webpages and shared page input off for the whole server.
 
-```text
-mediaplayer_allow_webpages 1
-```
+Each player chooses whether to see them with the client setting `mediaplayer_show_webpages` (default `0`), found in the sidebar settings under **Webpages**. Enabling it asks the player to confirm that the site will see their IP address and that input on the page is shared. Players who haven't enabled it see a "Webpage hidden" notice and nothing is loaded for them.
 
-This allows otherwise-unmatched URLs to fall back to the generic webpage service. Keep it disabled on public servers unless you deliberately accept the additional risk and restrict who can submit requests.
+While a webpage plays, every viewer can control it. Cursor movement (shown as a labelled dot), clicks, right clicks, scrolling, keypresses, typed text and navigation are relayed through the server to the other viewers. Clicks and typed text are matched to page elements by a CSS selector, so pages that render differently for each viewer can drift apart; navigation re-syncs everyone. Content inside cross-origin iframes can't be reached and isn't shared.
 
 ## Adding a provider
 

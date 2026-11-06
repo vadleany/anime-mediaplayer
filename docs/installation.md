@@ -48,7 +48,7 @@ Workshop releases may lag behind the repository. Use a source checkout when test
 - **No Media Player category:** confirm the addon is mounted and check the server/client console for Lua errors.
 - **Black screen or codec error:** try the x86-64 branch and GMod CEF Codec Fix; the provider may use a codec unsupported by the installed CEF build.
 - **SoundCloud does not load:** check the embedded browser version and the GModPatchTool requirement.
-- **URL rejected:** check [Video services](video-services.md); unsupported URLs require `mediaplayer_allow_webpages 1`, which should be enabled cautiously.
+- **URL rejected:** check [Video services](video-services.md); unsupported URLs fall back to a webpage, which needs `mediaplayer_allow_webpages 1` on the server and `mediaplayer_show_webpages 1` for each player who wants to see it.
 - **Spatial audio is silent:** check the server hear radius, client 3D-audio setting, proximity distances, and whether the listener is within range.
 
 ## Related

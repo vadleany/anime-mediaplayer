@@ -7,11 +7,15 @@ ConVars are defined primarily in `lua/mediaplayer/sh_cvars.lua`. The spatial hea
 | ConVar | Default | Flags / scope | Description |
 |---|---:|---|---|
 | `mediaplayer_debug` | `0` | Shared (server and client) | Enables verbose diagnostic logging in the realm where it is set |
-| `mediaplayer_allow_webpages` | `0` | Archived, replicated | Allows otherwise-unmatched URLs to use the generic webpage service |
+| `mediaplayer_allow_webpages` | `1` | Archived, notified, replicated | Allows otherwise-unmatched URLs to use the generic webpage service, and relays viewers' mouse, scroll, keyboard and navigation on a webpage to the other viewers |
 | `mediaplayer_queue_limit` | `64` | Replicated | Maximum number of queued items per media player |
 | `mediaplayer_spatial_hear_radius` | `1800` | Archived, notified, replicated | Maximum distance at which players are listeners of a spatial anchor (Source units) |
 
-Keep `mediaplayer_allow_webpages` disabled on public servers unless unrestricted webpage playback is an intentional feature. Arbitrary webpages are less predictable and expand the external-content attack surface. Restrict request permissions if you enable it.
+Webpages are allowed by default, but each player decides for themselves: the client setting `mediaplayer_show_webpages` (off by default) controls whether webpages load in their game at all. Loading a page reveals the player's IP address to that site, so the settings tab asks for confirmation before turning it on. Players who leave it off see a notice on the screen instead.
+
+On a shared webpage every viewer can control the page. Mouse movement, clicks, scrolling, keypresses, typed text (including passwords) and navigation are sent to the other viewers who have webpages enabled, and theirs to you. There is no separate setting for this; it follows `mediaplayer_allow_webpages`. Set `mediaplayer_allow_webpages 0` on servers where you don't want arbitrary pages or shared input. Arbitrary webpages are less predictable and expand the external-content attack surface, so restrict request permissions if that matters for your server.
+
+Keyboard input only reaches a page that can take keyboard focus, which the screen cursor does not currently provide, so shared typing works only where the page receives keys by other means.
 
 ## Client ConVars
 
@@ -27,7 +31,6 @@ Keep `mediaplayer_allow_webpages` disabled on public servers unless unrestricted
 | `mediaplayer_proximity_max` | `1000` | Yes | Distance where proximity volume reaches zero |
 | `mediaplayer_cc_lang` | `off` | Yes | Subtitle language code for YouTube and embedded MKV subtitles; `off` disables subtitles |
 | `mediaplayer_subtitle_styling` | `1` | Yes | Draws embedded ASS subtitles with the file's own styling and fonts |
-| `mediaplayer_screen_cursor` | `0` | Yes | Shows a cursor on a screen while the context menu key is held over it, and sends left click, right click and scrolling to the page |
 
 Most client settings are also exposed through the in-game **Media Player** menubar options.
 

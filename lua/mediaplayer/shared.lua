@@ -51,6 +51,7 @@ end
 
 include "sh_events.lua"
 include "sh_mediaplayer.lua"
+include "sh_websync.lua" -- before services; the webpage service uses it
 include "sh_services.lua"
 include "sh_history.lua"
 include "sh_metadata.lua"

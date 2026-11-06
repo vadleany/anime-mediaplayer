@@ -6,12 +6,16 @@ cvars.AddChangeCallback( "mediaplayer_debug", function(name, old, new)
 	MediaPlayer.DEBUG = tobool(new)
 end)
 
-MediaPlayer.Cvars.AllowWebpages = CreateConVar( "mediaplayer_allow_webpages", 0, {
+-- Server-side switch for webpages. Each client still has to opt in with
+-- mediaplayer_show_webpages before a webpage is loaded in their game. This
+-- also controls whether players' mouse, scroll and keyboard input on a
+-- webpage is relayed to the other viewers.
+MediaPlayer.Cvars.AllowWebpages = CreateConVar( "mediaplayer_allow_webpages", 1, {
 	FCVAR_ARCHIVE,
 	FCVAR_NOTIFY,
 	FCVAR_REPLICATED,
 	FCVAR_SERVER_CAN_EXECUTE
-}, "Allows any webpage to be requested." )
+}, "Allows any webpage to be requested, and shares viewers' input on webpages." )
 
 MediaPlayer.Cvars.QueueLimit = CreateConVar( "mediaplayer_queue_limit", 64, {
 	FCVAR_REPLICATED,
@@ -28,6 +32,9 @@ if CLIENT then
 	MediaPlayer.Cvars.DrawThumbnails = CreateClientConVar( "mediaplayer_draw_thumbnails", "0", true, false )
 	MediaPlayer.Cvars.ProximityMin = CreateClientConVar( "mediaplayer_proximity_min", "100", true, false )
 	MediaPlayer.Cvars.ProximityMax = CreateClientConVar( "mediaplayer_proximity_max", "1000", true, false )
+
+	-- Webpages are hidden until the player opts in; loading one reveals their IP address to that site.
+	MediaPlayer.Cvars.ShowWebpages = CreateClientConVar( "mediaplayer_show_webpages", "0", true, false )
 
 	-- Hold the context menu key over a screen to get a cursor on the page, with left/right click and scroll.
 	MediaPlayer.Cvars.ScreenCursor = CreateClientConVar( "mediaplayer_screen_cursor", "0", true, false )

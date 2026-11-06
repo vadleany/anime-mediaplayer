@@ -525,7 +525,9 @@ function PANEL:HandleMouseActions()
 	elseif action.tick > 3 then
 		-- hide cursor
 		gui.EnableScreenClicker( false )
-		self:SetKeyboardInputEnabled( false )
+		if not self._mpKeyboardInput then
+			self:SetKeyboardInputEnabled( false )
+		end
 		self:SetMouseInputEnabled( false )
 		self:SetZPos( -32768 )
 		table.remove( self.MouseActions, 1 )
@@ -576,10 +578,11 @@ function PANEL:MouseHoverAt( x, y )
 
 		self:SetZPos( 32767 )
 		self:SetPos( cx - lx, cy - ly )
+		self:SetMouseInputEnabled( true )
 		self:MakePopup()
 		-- MakePopup grabs the keyboard, which would swallow the release of
 		-- the context menu key and leave the menu stuck open.
-		self:SetKeyboardInputEnabled( false )
+		self:SetKeyboardInputEnabled( self._mpKeyboardInput == true )
 		gui.InternalCursorMoved( 0, 0 )
 
 		return true
@@ -603,13 +606,33 @@ function PANEL:MouseHoverAt( x, y )
 	return true
 end
 
-function PANEL:EndMouseHover()
-	if not self._mouseHover then return end
+-- In keyboard mode, keep the screen-cursor key out of the page and
+-- reserve Escape for leaving the mode.
+function PANEL:OnKeyCodePressed( key )
+	if not self._mpKeyboardInput then return end
+	if key == KEY_C then return true end
+	if key == KEY_ESCAPE then
+		if self.OnKeyboardInputExit then self:OnKeyboardInputExit() end
+		return true
+	end
+end
 
+function PANEL:OnKeyCodeReleased( key )
+	if self._mpKeyboardInput and ( key == KEY_C or key == KEY_ESCAPE ) then
+		return true
+	end
+end
+
+function PANEL:EndMouseHover()
+	-- Always clear the input state, even if the hover marker was already lost
+	-- during a focus transition. A stale popup can otherwise keep intercepting
+	-- mouse buttons after keyboard input mode is disabled.
 	self._mouseHover = nil
 
 	self:SetMouseInputEnabled( false )
-	self:SetKeyboardInputEnabled( false )
+	if not self._mpKeyboardInput then
+		self:SetKeyboardInputEnabled( false )
+	end
 	self:SetZPos( -32768 )
 
 	-- Let vgui re-evaluate the hovered panel so the page sees the mouse leave

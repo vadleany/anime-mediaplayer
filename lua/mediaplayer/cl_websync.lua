@@ -14,6 +14,103 @@
 local WS = MediaPlayer.WebSync
 
 local CONSOLE_PREFIX = "MPSYNC:"
+local keyboardService
+local escapeWasDown = false
+
+local function setKeyboardInput( service, enabled )
+	local browser = service and service.Browser
+	if not IsValid( browser ) then return end
+
+	service._webKeyboardInput = enabled and true or nil
+	browser._mpKeyboardInput = enabled and true or nil
+	browser.OnKeyboardInputExit = enabled and function()
+		setKeyboardInput( service, false )
+	end or nil
+	browser:SetKeyboardInputEnabled( enabled )
+	if MediaPlayer.SetKeyboardScreenCursor then
+		MediaPlayer.SetKeyboardScreenCursor( enabled )
+	end
+
+	if enabled then
+		keyboardService = service
+		escapeWasDown = input.IsKeyDown( KEY_ESCAPE )
+		browser:MakePopup()
+		if browser.RequestFocus then browser:RequestFocus() end
+	elseif keyboardService == service then
+		keyboardService = nil
+		escapeWasDown = false
+
+		-- Release every part of the popup state. Merely disabling keyboard
+		-- input leaves the DHTML panel as the VGUI focus owner after MakePopup,
+		-- which can prevent the game from receiving movement and other keys.
+		if browser.EndMouseHover then browser:EndMouseHover() end
+		browser:SetMouseInputEnabled( false )
+		browser:SetKeyboardInputEnabled( false )
+
+		-- MakePopup can leave VGUI owning focus, and a mouse button pressed
+		-- while the browser owns the cursor may never deliver its release to
+		-- the game. Explicitly relinquish focus and clear all mouse buttons.
+		if browser.KillFocus then browser:KillFocus() end
+		gui.InternalMouseReleased( MOUSE_LEFT )
+		gui.InternalMouseReleased( MOUSE_RIGHT )
+		gui.InternalMouseReleased( MOUSE_MIDDLE )
+		gui.EnableScreenClicker( false )
+
+		local cx, cy = input.GetCursorPos()
+		gui.InternalCursorMoved( cx, cy )
+	end
+end
+
+-- Escape is often handled by the engine as a bind before the focused DHTML
+-- panel receives OnKeyCodePressed. Intercept the cancel/menu binds while
+-- keyboard input mode is active so Escape exits the mode instead of opening
+-- the game menu. This hook is declared after setKeyboardInput so it closes
+-- over the local function rather than accidentally resolving a global.
+hook.Add( "PlayerBindPress", "MediaPlayer.WebSync.KeyboardEscape", function( ply, bind, pressed )
+	if not pressed or not IsValid( ply ) or ply ~= LocalPlayer() then return end
+	if not keyboardService or not keyboardService._webKeyboardInput then return end
+	if not IsValid( keyboardService.Browser ) then
+		keyboardService = nil
+		return
+	end
+
+	bind = string.lower( string.Trim( bind or "" ) )
+	if bind == "cancelselect" or bind == "+cancelselect" or bind == "+menu" or bind == "escape" then
+		setKeyboardInput( keyboardService, false )
+		return true
+	end
+end )
+
+-- Some GMod/CEF focus paths do not pass Escape through PlayerBindPress or
+-- the DHTML panel's key callbacks. Poll only while keyboard mode is active
+-- so Escape still reaches the same cleanup routine in those cases.
+hook.Add( "Think", "MediaPlayer.WebSync.KeyboardEscapeFallback", function()
+	if not keyboardService or not keyboardService._webKeyboardInput then
+		escapeWasDown = false
+		return
+	end
+
+	if not IsValid( keyboardService.Browser ) then
+		keyboardService = nil
+		escapeWasDown = false
+		return
+	end
+
+	local escapeDown = input.IsKeyDown( KEY_ESCAPE )
+	if escapeDown and not escapeWasDown then
+		setKeyboardInput( keyboardService, false )
+	end
+	escapeWasDown = escapeDown
+end )
+
+-- Keyboard input mode is an explicit browser interaction mode: never let
+-- mouse movement rotate the player's view, even when the cursor is outside
+-- every MediaPlayer screen.
+hook.Add( "InputMouseApply", "MediaPlayer.WebSync.LockCamera", function()
+	if keyboardService and keyboardService._webKeyboardInput then
+		return true
+	end
+end )
 
 local CAPTURE_JS = [=[
 (function () {
@@ -94,6 +191,32 @@ local CAPTURE_JS = [=[
 	document.addEventListener('contextmenu', function (e) {
 		if (!e.isTrusted) return;
 		send({ t: 'click', x: fx(e.clientX), y: fy(e.clientY), b: 2, sel: selectorFor(e.target) });
+
+		// Collect context-menu data locally; it is never sent through WebSync.
+		var target = e.target && e.target.nodeType === 1 ? e.target : (e.target && e.target.parentElement);
+		var link = target && target.closest ? target.closest('a[href]') : null;
+		var media = target && target.closest ? target.closest('video,audio,img,source') : null;
+		var linkUrl = link ? link.href : '';
+		var mediaUrl = '';
+		if (media) {
+			mediaUrl = media.currentSrc || media.src || media.getAttribute('src') || '';
+			if (!mediaUrl && media.tagName === 'SOURCE' && media.parentElement) {
+				mediaUrl = media.parentElement.currentSrc || media.parentElement.src || '';
+			}
+		}
+		var selection = '';
+		try { selection = String(window.getSelection ? window.getSelection() : '').trim(); } catch (err) {}
+		function safeUrl(value) {
+			return value && /^https?:\/\//i.test(value) ? String(value).slice(0, 2048) : '';
+		}
+		linkUrl = safeUrl(linkUrl);
+		mediaUrl = safeUrl(mediaUrl);
+		send({
+			t: 'menu',
+			link: linkUrl,
+			selection: selection.slice(0, 1024),
+			media: mediaUrl
+		});
 	}, opts);
 
 	window.addEventListener('scroll', function () {
@@ -280,12 +403,124 @@ function WS.Attach( service, browser )
 	end
 
 	browser.OnWebSync = function( _, json )
-		local ev = WS.Sanitize( util.JSONToTable( json ) )
+		local raw = util.JSONToTable( json )
+		-- Context menus are local UI actions, not synchronized page input.
+		-- Treat all page-provided values as untrusted strings.
+		if istable( raw ) and raw.t == "menu" then
+			local function cleanValue( value, max )
+				if not isstring( value ) or #value == 0 or #value > max then return nil end
+				if value:find( "[%z\1-\31]" ) then return nil end
+				return value
+			end
+
+			local link = cleanValue( raw.link, 2048 )
+			local selection = cleanValue( raw.selection, 1024 )
+			local media = cleanValue( raw.media, 2048 )
+			local validLink = link and link:match( "^https?://[^%s]+$" ) and link or nil
+			local validMedia = media and media:match( "^https?://[^%s]+$" ) and media or nil
+			local mp = WS.FindPlayer( service )
+			if not IsValid( mp ) then return end
+
+			-- Capture the real cursor position before releasing the browser.
+			-- EndMouseHover can cause VGUI to recalculate the hovered panel.
+			local cursorX, cursorY = input.GetCursorPos()
+
+			-- The menu must own both mouse and keyboard focus while it is open.
+			-- In keyboard mode the browser normally keeps keyboard focus, so
+			-- temporarily release that focus without changing the mode itself.
+			if IsValid( browser ) then
+				if browser.EndMouseHover then browser:EndMouseHover() end
+				browser:SetMouseInputEnabled( false )
+				browser:SetKeyboardInputEnabled( false )
+				if browser.KillFocus then browser:KillFocus() end
+			end
+
+			if MediaPlayer.SetWebContextMenuOpen then
+				MediaPlayer.SetWebContextMenuOpen( true )
+			end
+
+			local menu = DermaMenu()
+			local oldOnRemove = menu.OnRemove
+			menu.OnRemove = function( panel )
+				if MediaPlayer.SetWebContextMenuOpen then
+					MediaPlayer.SetWebContextMenuOpen( false )
+				end
+				if oldOnRemove then oldOnRemove( panel ) end
+
+				-- Restore webpage keyboard focus only if the user left keyboard
+				-- input mode enabled (the menu can also turn it off).
+				if IsValid( browser ) and service._webKeyboardInput then
+					browser:SetKeyboardInputEnabled( true )
+					browser:MakePopup()
+					browser:SetMouseInputEnabled( false )
+					if browser.RequestFocus then browser:RequestFocus() end
+				end
+			end
+			local keyboardOption = menu:AddOption( "Keyboard Input", function()
+				setKeyboardInput( service, not service._webKeyboardInput )
+			end )
+			keyboardOption:SetChecked( service._webKeyboardInput == true )
+			keyboardOption:SetIcon( "icon16/keyboard.png" )
+			menu:AddSpacer()
+
+			if validLink then
+				menu:AddOption( "Open link", function()
+					if IsValid( mp ) and IsValid( browser ) then browser:OpenURL( validLink ) end
+				end ):SetIcon( "icon16/link_go.png" )
+
+				menu:AddOption( "Copy link address", function()
+					SetClipboardText( validLink )
+				end ):SetIcon( "icon16/link.png" )
+
+				if MediaPlayer.ValidUrl( validLink ) then
+					menu:AddOption( "Add to queue", function()
+						if IsValid( mp ) then MediaPlayer.Request( mp, validLink ) end
+					end ):SetIcon( "icon16/add.png" )
+				end
+			end
+
+			if selection then
+				if validLink then menu:AddSpacer() end
+				menu:AddOption( "Copy selected text", function()
+					SetClipboardText( selection )
+				end ):SetIcon( "icon16/page_copy.png" )
+			end
+
+			if validMedia then
+				if validLink or selection then menu:AddSpacer() end
+				menu:AddOption( "Copy media URL", function()
+					SetClipboardText( validMedia )
+				end ):SetIcon( "icon16/film.png" )
+
+				if not validLink and MediaPlayer.ValidUrl( validMedia ) then
+					menu:AddOption( "Add to queue", function()
+						if IsValid( mp ) then MediaPlayer.Request( mp, validMedia ) end
+					end ):SetIcon( "icon16/add.png" )
+				end
+			end
+
+			if validLink or selection or validMedia then menu:AddSpacer() end
+			menu:AddOption( "Back", function()
+				if IsValid( browser ) then browser:RunJavascript( "history.back();" ) end
+			end ):SetIcon( "icon16/arrow_left.png" )
+			menu:AddOption( "Forward", function()
+				if IsValid( browser ) then browser:RunJavascript( "history.forward();" ) end
+			end ):SetIcon( "icon16/arrow_right.png" )
+			menu:AddOption( "Reload", function()
+				if IsValid( browser ) then browser:RunJavascript( "location.reload();" ) end
+			end ):SetIcon( "icon16/arrow_refresh.png" )
+
+			-- DermaMenu's default position can be stale after the browser
+			-- relinquishes its popup focus; pass the captured screen position.
+			menu:Open( cursorX, cursorY )
+			return
+		end
+
+		local ev = WS.Sanitize( raw )
 		if ev then
 			sendEvent( service, ev )
 		end
 	end
-
 	browser.OnWebURLChanged = function( _, new )
 		if not isstring( new ) or new == service._webLastUrl then return end
 		service._webLastUrl = new
@@ -299,6 +534,11 @@ end
 
 --- Stops sharing input. Call before the browser is released to the pool.
 function WS.Detach( browser )
+	if keyboardService and keyboardService.Browser == browser then
+		setKeyboardInput( keyboardService, false )
+	end
+	browser._mpKeyboardInput = nil
+	browser.OnKeyboardInputExit = nil
 	browser.OnWebDocumentReady = nil
 	browser.OnWebSync = nil
 	browser.OnWebURLChanged = nil
